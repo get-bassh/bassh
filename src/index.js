@@ -13,12 +13,16 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
+    if (request.method === 'GET') {
+      return handleList(env, corsHeaders);
+    }
+
     if (request.method === 'DELETE') {
       return handleDelete(request, env, corsHeaders);
     }
 
     if (request.method !== 'POST') {
-      return new Response(JSON.stringify({ error: 'POST or DELETE required' }), {
+      return new Response(JSON.stringify({ error: 'GET, POST, or DELETE required' }), {
         status: 405,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
@@ -381,6 +385,52 @@ async function setupAccess(env, projectName, emails, domain) {
   }
 
   return { status: 'created', appId: appId };
+}
+
+async function handleList(env, corsHeaders) {
+  try {
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/pages/projects`,
+      {
+        headers: { 'Authorization': `Bearer ${env.CF_API_TOKEN}` }
+      }
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      return new Response(JSON.stringify({
+        error: 'Failed to list projects',
+        details: result
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const projects = result.result.map(p => ({
+      name: p.name,
+      subdomain: p.subdomain,
+      url: `https://${p.subdomain}.pages.dev`,
+      created: p.created_on
+    }));
+
+    return new Response(JSON.stringify({
+      success: true,
+      projects
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    return new Response(JSON.stringify({
+      error: 'Internal error',
+      message: error.message
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
 }
 
 async function handleDelete(request, env, corsHeaders) {
