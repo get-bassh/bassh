@@ -177,6 +177,15 @@ mkdir -p "$DEPLOY_DIR"
 # Copy files
 cp -r "$DIR"/* "$DEPLOY_DIR"/ 2>/dev/null || cp -r "$DIR"/. "$DEPLOY_DIR"/
 
+# Auto-create index.html if missing
+if [[ ! -f "$DEPLOY_DIR/index.html" ]]; then
+  FIRST_HTML=$(find "$DEPLOY_DIR" -maxdepth 1 -name "*.html" -type f | head -1)
+  if [[ -n "$FIRST_HTML" ]]; then
+    cp "$FIRST_HTML" "$DEPLOY_DIR/index.html"
+    echo -e "${BLUE}No index.html found, using $(basename "$FIRST_HTML")${NC}"
+  fi
+fi
+
 # Add password protection if requested (inject into HTML files)
 if [[ -n "$PASSWORD" ]]; then
   echo -e "${BLUE}Adding password protection...${NC}"
