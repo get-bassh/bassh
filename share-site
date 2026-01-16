@@ -8,7 +8,7 @@ set -e
 # ============================================================
 # CONFIGURATION - Set your worker URL here after deploying
 # ============================================================
-WORKER_URL="${SHARE_SITE_API:-https://share-site-api.YOUR-SUBDOMAIN.workers.dev}"
+WORKER_URL="${SHARE_SITE_API:-https://share-site-api.bob.workers.dev}"
 # ============================================================
 
 # Colors
