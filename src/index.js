@@ -13,8 +13,12 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
+    if (request.method === 'DELETE') {
+      return handleDelete(request, env, corsHeaders);
+    }
+
     if (request.method !== 'POST') {
-      return new Response(JSON.stringify({ error: 'POST required' }), {
+      return new Response(JSON.stringify({ error: 'POST or DELETE required' }), {
         status: 405,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
@@ -377,4 +381,78 @@ async function setupAccess(env, projectName, emails, domain) {
   }
 
   return { status: 'created', appId: appId };
+}
+
+async function handleDelete(request, env, corsHeaders) {
+  try {
+    const projectName = request.headers.get('X-Project-Name');
+
+    if (!projectName) {
+      return new Response(JSON.stringify({ error: 'Project name required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Delete the Pages project
+    const deleteResponse = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/pages/projects/${projectName}`,
+      {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${env.CF_API_TOKEN}` }
+      }
+    );
+
+    const deleteResult = await deleteResponse.json();
+
+    if (!deleteResponse.ok) {
+      return new Response(JSON.stringify({
+        error: 'Delete failed',
+        details: deleteResult
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Also try to delete any Access app for this project
+    const appDomain = `${projectName}.pages.dev`;
+    const listResponse = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/access/apps`,
+      {
+        headers: { 'Authorization': `Bearer ${env.CF_API_TOKEN}` }
+      }
+    );
+
+    const listResult = await listResponse.json();
+    const existingApp = listResult.result?.find(app =>
+      app.domain === appDomain || app.name === projectName
+    );
+
+    if (existingApp) {
+      await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/access/apps/${existingApp.id}`,
+        {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${env.CF_API_TOKEN}` }
+        }
+      );
+    }
+
+    return new Response(JSON.stringify({
+      success: true,
+      message: `Project '${projectName}' deleted`
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    return new Response(JSON.stringify({
+      error: 'Internal error',
+      message: error.message
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
 }

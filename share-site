@@ -25,6 +25,7 @@ PASSWORD=""
 PROJECT_NAME=""
 EMAILS=""
 DOMAIN=""
+DELETE_MODE=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -45,6 +46,10 @@ while [[ $# -gt 0 ]]; do
       DOMAIN="$2"
       shift 2
       ;;
+    --delete|-D)
+      DELETE_MODE=true
+      shift
+      ;;
     --help|-h)
       echo "share-site - Deploy a static site in one command"
       echo ""
@@ -55,6 +60,7 @@ while [[ $# -gt 0 ]]; do
       echo "  -e, --emails <list>       Restrict to specific emails (comma-separated)"
       echo "  -d, --domain <domain>     Allow all emails from domain (e.g., @company.com)"
       echo "  -n, --name <name>         Project name (auto-generated if not provided)"
+      echo "  -D, --delete              Delete a project (requires -n)"
       echo "  -h, --help                Show this help"
       echo ""
       echo "Examples:"
@@ -63,6 +69,7 @@ while [[ $# -gt 0 ]]; do
       echo "  share-site -p secret123                 # With password"
       echo "  share-site -e \"a@x.com,b@y.com\"         # Only these emails can access"
       echo "  share-site -d \"@company.com\"            # Anyone @company.com can access"
+      echo "  share-site -D -n my-project             # Delete a project"
       echo ""
       echo "Environment:"
       echo "  SHARE_SITE_API    Override the deployment API URL"
@@ -83,6 +90,29 @@ if [[ "$WORKER_URL" == *"YOUR-SUBDOMAIN"* ]]; then
   echo "  1. Edit this script and replace YOUR-SUBDOMAIN"
   echo "  2. Set environment variable: export SHARE_SITE_API=https://your-worker.workers.dev"
   exit 1
+fi
+
+# Handle delete mode
+if [[ "$DELETE_MODE" == true ]]; then
+  if [[ -z "$PROJECT_NAME" ]]; then
+    echo -e "${RED}Error: Project name required for delete. Use -n <name>${NC}"
+    exit 1
+  fi
+
+  echo -e "${BLUE}Deleting project: $PROJECT_NAME${NC}"
+
+  RESPONSE=$(curl -s -X DELETE "$WORKER_URL" \
+    -H "Content-Type: application/json" \
+    -H "X-Project-Name: $PROJECT_NAME")
+
+  if echo "$RESPONSE" | grep -q '"success":true'; then
+    echo -e "${GREEN}✓ Project '$PROJECT_NAME' deleted successfully${NC}"
+  else
+    echo -e "${RED}Delete failed${NC}"
+    echo "Response: $RESPONSE"
+    exit 1
+  fi
+  exit 0
 fi
 
 # Check if directory exists
