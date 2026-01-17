@@ -1,15 +1,126 @@
 // share-site-worker: Multi-tenant deployment backend for Cloudflare Pages
 // Deploy this worker once, then anyone with the CLI can deploy sites to your account
 
-// PageCrypt-style encryption: AES-256-GCM with PBKDF2 key derivation
+// ============================================================
+// AUTHENTICATION & USER MANAGEMENT
+// ============================================================
+
+// Generate a secure API key
+function generateApiKey() {
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  const key = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  return `sk_${key}`;
+}
+
+// Validate username format
+function isValidUsername(username) {
+  return /^[a-z0-9][a-z0-9_-]{2,19}$/.test(username);
+}
+
+// Look up user by API key
+async function getUserByKey(env, apiKey) {
+  if (!apiKey || !apiKey.startsWith('sk_')) return null;
+  const data = await env.USERS.get(`key:${apiKey}`, 'json');
+  return data; // { username: "..." } or null
+}
+
+// Look up user by username
+async function getUserByUsername(env, username) {
+  const data = await env.USERS.get(`user:${username}`, 'json');
+  return data; // { key: "...", created: "..." } or null
+}
+
+// Handle user registration
+async function handleRegister(request, env, corsHeaders) {
+  try {
+    const body = await request.json();
+    const username = (body.username || '').toLowerCase().trim();
+    const registrationCode = body.registrationCode || '';
+
+    // Check registration code if configured
+    if (env.REGISTRATION_CODE && registrationCode !== env.REGISTRATION_CODE) {
+      return new Response(JSON.stringify({ error: 'Invalid registration code' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Validate username
+    if (!isValidUsername(username)) {
+      return new Response(JSON.stringify({
+        error: 'Invalid username. Must be 3-20 characters, lowercase alphanumeric, can include _ and -, must start with letter or number.'
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Check if username exists
+    const existing = await getUserByUsername(env, username);
+    if (existing) {
+      return new Response(JSON.stringify({ error: 'Username already taken' }), {
+        status: 409,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Generate API key and store user
+    const apiKey = generateApiKey();
+    const created = new Date().toISOString();
+
+    await env.USERS.put(`user:${username}`, JSON.stringify({ key: apiKey, created }));
+    await env.USERS.put(`key:${apiKey}`, JSON.stringify({ username }));
+
+    return new Response(JSON.stringify({
+      success: true,
+      username,
+      key: apiKey,
+      message: 'Registration successful! Save your API key - it cannot be recovered.'
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    return new Response(JSON.stringify({ error: 'Invalid request body' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+// Handle /me endpoint
+async function handleMe(request, env, corsHeaders) {
+  const apiKey = request.headers.get('X-API-Key');
+  const user = await getUserByKey(env, apiKey);
+
+  if (!user) {
+    return new Response(JSON.stringify({ error: 'Invalid API key' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+
+  const userData = await getUserByUsername(env, user.username);
+
+  return new Response(JSON.stringify({
+    success: true,
+    username: user.username,
+    created: userData?.created
+  }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
+}
+
+// ============================================================
+// ENCRYPTION (PageCrypt-style AES-256-GCM)
+// ============================================================
+
 async function encryptHTML(htmlContent, password) {
   const encoder = new TextEncoder();
 
-  // Generate random salt (32 bytes) and IV (16 bytes)
   const salt = crypto.getRandomValues(new Uint8Array(32));
   const iv = crypto.getRandomValues(new Uint8Array(16));
 
-  // Derive key using PBKDF2 (100,000 iterations, SHA-256)
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
     encoder.encode(password),
@@ -31,20 +142,17 @@ async function encryptHTML(htmlContent, password) {
     ['encrypt']
   );
 
-  // Encrypt the HTML content
   const encrypted = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv: iv },
     key,
     encoder.encode(htmlContent)
   );
 
-  // Combine: salt (32) + iv (16) + ciphertext
   const combined = new Uint8Array(salt.length + iv.length + encrypted.byteLength);
   combined.set(salt, 0);
   combined.set(iv, salt.length);
   combined.set(new Uint8Array(encrypted), salt.length + iv.length);
 
-  // Return as base64 (chunk to avoid stack overflow)
   let binary = '';
   const chunkSize = 8192;
   for (let i = 0; i < combined.length; i += chunkSize) {
@@ -208,12 +316,10 @@ function getDecryptTemplate(encryptedData) {
       return false;
     }
 
-    // Try stored password first (auto-unlock for same session)
     (async () => {
       const stored = sessionStorage.getItem(STORAGE_KEY);
       if (stored && await tryDecrypt(stored, false)) return;
 
-      // Show form if no stored password or it failed
       document.querySelector('.container').classList.add('visible');
       document.getElementById('form').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -237,236 +343,278 @@ function getDecryptTemplate(encryptedData) {
 </html>`;
 }
 
+// ============================================================
+// MAIN HANDLER
+// ============================================================
+
 export default {
   async fetch(request, env) {
+    const url = new URL(request.url);
+    const path = url.pathname;
+
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, X-Project-Name, X-Password, X-Emails, X-Domain',
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, X-Project-Name, X-Password, X-Emails, X-Domain, X-API-Key, X-Registration-Code',
     };
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
     }
 
+    // Route: POST /register - Create new user account
+    if (path === '/register' && request.method === 'POST') {
+      return handleRegister(request, env, corsHeaders);
+    }
+
+    // Route: GET /me - Get current user info
+    if (path === '/me' && request.method === 'GET') {
+      return handleMe(request, env, corsHeaders);
+    }
+
+    // All other routes require authentication
+    const apiKey = request.headers.get('X-API-Key');
+    const user = await getUserByKey(env, apiKey);
+
+    if (!user) {
+      return new Response(JSON.stringify({ error: 'Authentication required. Provide X-API-Key header.' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const username = user.username;
+
+    // Route: GET / - List user's projects
     if (request.method === 'GET') {
-      return handleList(env, corsHeaders);
+      return handleList(env, corsHeaders, username);
     }
 
+    // Route: DELETE / - Delete a project
     if (request.method === 'DELETE') {
-      return handleDelete(request, env, corsHeaders);
+      return handleDelete(request, env, corsHeaders, username);
     }
 
-    if (request.method !== 'POST') {
-      return new Response(JSON.stringify({ error: 'GET, POST, or DELETE required' }), {
-        status: 405,
+    // Route: POST / - Deploy a site
+    if (request.method === 'POST') {
+      return handleDeploy(request, env, corsHeaders, username);
+    }
+
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+};
+
+// ============================================================
+// DEPLOYMENT HANDLER
+// ============================================================
+
+async function handleDeploy(request, env, corsHeaders, username) {
+  try {
+    let projectName = request.headers.get('X-Project-Name') || `site-${Date.now().toString().slice(-6)}`;
+    const password = request.headers.get('X-Password') || '';
+    const emails = request.headers.get('X-Emails') || '';
+    const domain = request.headers.get('X-Domain') || '';
+
+    // Namespace project name with username
+    const fullProjectName = `${username}-${projectName}`;
+
+    // Parse JSON payload with files
+    const payload = await request.json();
+    const files = payload.files;
+
+    if (!files || files.length === 0) {
+      return new Response(JSON.stringify({ error: 'No files provided' }), {
+        status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
-    try {
-      const projectName = request.headers.get('X-Project-Name') || `site-${Date.now().toString().slice(-6)}`;
-      const password = request.headers.get('X-Password') || '';
-      const emails = request.headers.get('X-Emails') || '';
-      const domain = request.headers.get('X-Domain') || '';
+    // Ensure project exists
+    await ensureProject(env, fullProjectName);
 
-      // Parse JSON payload with files
-      const payload = await request.json();
-      const files = payload.files; // Array of { path, content (base64) }
-
-      if (!files || files.length === 0) {
-        return new Response(JSON.stringify({ error: 'No files provided' }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
+    // Get upload token
+    const tokenResponse = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/pages/projects/${fullProjectName}/upload-token`,
+      {
+        headers: { 'Authorization': `Bearer ${env.CF_API_TOKEN}` }
       }
+    );
 
-      // Ensure project exists
-      await ensureProject(env, projectName);
-
-      // Step 1: Get upload token
-      const tokenResponse = await fetch(
-        `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/pages/projects/${projectName}/upload-token`,
-        {
-          headers: { 'Authorization': `Bearer ${env.CF_API_TOKEN}` }
-        }
-      );
-
-      const tokenResult = await tokenResponse.json();
-      if (!tokenResponse.ok) {
-        return new Response(JSON.stringify({
-          error: 'Failed to get upload token',
-          details: tokenResult
-        }), {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-
-      const uploadToken = tokenResult.result.jwt;
-
-      // Process files - calculate hashes and prepare for upload
-      const manifest = {};
-      const uploadPayload = [];
-      const hashes = [];
-
-      for (const file of files) {
-        const path = file.path.startsWith('/') ? file.path : '/' + file.path;
-        let content = file.content; // Already base64
-        let finalContent;
-
-        // If password provided and this is an HTML file, encrypt it
-        if (password && path.endsWith('.html')) {
-          // Decode original HTML
-          const binaryString = atob(content);
-          const originalHTML = binaryString;
-
-          // Encrypt and wrap in decrypt template
-          const encryptedData = await encryptHTML(originalHTML, password);
-          const protectedHTML = getDecryptTemplate(encryptedData);
-
-          // Encode back to base64
-          finalContent = btoa(protectedHTML);
-        } else {
-          finalContent = content;
-        }
-
-        // Decode to get raw bytes for hashing
-        const binaryString = atob(finalContent);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-
-        // Hash using SHA-256 (truncated to 32 hex chars like MD5)
-        const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
-        const hashArray = new Uint8Array(hashBuffer);
-        const hash = Array.from(hashArray).map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 32);
-
-        manifest[path] = hash;
-        hashes.push(hash);
-
-        // Determine content type
-        const contentType = getContentType(path);
-
-        uploadPayload.push({
-          key: hash,
-          value: finalContent,
-          metadata: { contentType },
-          base64: true
-        });
-      }
-
-      // Step 2: Upload files
-      const uploadResponse = await fetch(
-        'https://api.cloudflare.com/client/v4/pages/assets/upload',
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${uploadToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(uploadPayload)
-        }
-      );
-
-      if (!uploadResponse.ok) {
-        const uploadError = await uploadResponse.text();
-        return new Response(JSON.stringify({
-          error: 'File upload failed',
-          details: uploadError
-        }), {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-
-      // Step 3: Register hashes
-      const upsertResponse = await fetch(
-        'https://api.cloudflare.com/client/v4/pages/assets/upsert-hashes',
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${uploadToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ hashes })
-        }
-      );
-
-      if (!upsertResponse.ok) {
-        const upsertError = await upsertResponse.text();
-        return new Response(JSON.stringify({
-          error: 'Hash registration failed',
-          details: upsertError
-        }), {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-
-      // Step 4: Create deployment with manifest
-      const manifestFormData = new FormData();
-      manifestFormData.append('manifest', JSON.stringify(manifest));
-
-      const deployResponse = await fetch(
-        `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/pages/projects/${projectName}/deployments`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${env.CF_API_TOKEN}`,
-          },
-          body: manifestFormData
-        }
-      );
-
-      const deployResult = await deployResponse.json();
-
-      if (!deployResponse.ok) {
-        return new Response(JSON.stringify({
-          error: 'Deployment creation failed',
-          details: deployResult
-        }), {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-
-      const url = `https://${projectName}.pages.dev`;
-
-      // Set up Cloudflare Access if emails/domain specified
-      let accessSetup = null;
-      if (emails || domain) {
-        accessSetup = await setupAccess(env, projectName, emails, domain);
-      }
-
+    const tokenResult = await tokenResponse.json();
+    if (!tokenResponse.ok) {
       return new Response(JSON.stringify({
-        success: true,
-        url: url,
-        project: projectName,
-        deployment: deployResult.result,
-        access: accessSetup,
-        protection: {
-          password: password ? true : false,
-          emails: emails || null,
-          domain: domain || null
-        }
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-
-    } catch (error) {
-      return new Response(JSON.stringify({
-        error: 'Internal error',
-        message: error.message,
-        stack: error.stack
+        error: 'Failed to get upload token',
+        details: tokenResult
       }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
+
+    const uploadToken = tokenResult.result.jwt;
+
+    // Process files
+    const manifest = {};
+    const uploadPayload = [];
+    const hashes = [];
+
+    for (const file of files) {
+      const path = file.path.startsWith('/') ? file.path : '/' + file.path;
+      let content = file.content;
+      let finalContent;
+
+      // Encrypt HTML files if password provided
+      if (password && path.endsWith('.html')) {
+        const binaryString = atob(content);
+        const originalHTML = binaryString;
+        const encryptedData = await encryptHTML(originalHTML, password);
+        const protectedHTML = getDecryptTemplate(encryptedData);
+        finalContent = btoa(protectedHTML);
+      } else {
+        finalContent = content;
+      }
+
+      // Hash for manifest
+      const binaryString = atob(finalContent);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
+      const hashArray = new Uint8Array(hashBuffer);
+      const hash = Array.from(hashArray).map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 32);
+
+      manifest[path] = hash;
+      hashes.push(hash);
+
+      const contentType = getContentType(path);
+
+      uploadPayload.push({
+        key: hash,
+        value: finalContent,
+        metadata: { contentType },
+        base64: true
+      });
+    }
+
+    // Upload files
+    const uploadResponse = await fetch(
+      'https://api.cloudflare.com/client/v4/pages/assets/upload',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${uploadToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(uploadPayload)
+      }
+    );
+
+    if (!uploadResponse.ok) {
+      const uploadError = await uploadResponse.text();
+      return new Response(JSON.stringify({
+        error: 'File upload failed',
+        details: uploadError
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Register hashes
+    const upsertResponse = await fetch(
+      'https://api.cloudflare.com/client/v4/pages/assets/upsert-hashes',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${uploadToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ hashes })
+      }
+    );
+
+    if (!upsertResponse.ok) {
+      const upsertError = await upsertResponse.text();
+      return new Response(JSON.stringify({
+        error: 'Hash registration failed',
+        details: upsertError
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Create deployment
+    const manifestFormData = new FormData();
+    manifestFormData.append('manifest', JSON.stringify(manifest));
+
+    const deployResponse = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/pages/projects/${fullProjectName}/deployments`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${env.CF_API_TOKEN}`,
+        },
+        body: manifestFormData
+      }
+    );
+
+    const deployResult = await deployResponse.json();
+
+    if (!deployResponse.ok) {
+      return new Response(JSON.stringify({
+        error: 'Deployment creation failed',
+        details: deployResult
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const siteUrl = `https://${fullProjectName}.pages.dev`;
+
+    // Set up Cloudflare Access if needed
+    let accessSetup = null;
+    if (emails || domain) {
+      accessSetup = await setupAccess(env, fullProjectName, emails, domain);
+    }
+
+    return new Response(JSON.stringify({
+      success: true,
+      url: siteUrl,
+      project: fullProjectName,
+      shortName: projectName,
+      deployment: deployResult.result,
+      access: accessSetup,
+      protection: {
+        password: password ? true : false,
+        emails: emails || null,
+        domain: domain || null
+      }
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    return new Response(JSON.stringify({
+      error: 'Internal error',
+      message: error.message,
+      stack: error.stack
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
   }
-};
+}
+
+// ============================================================
+// HELPER FUNCTIONS
+// ============================================================
 
 function getContentType(path) {
   const ext = path.split('.').pop().toLowerCase();
@@ -640,7 +788,7 @@ async function setupAccess(env, projectName, emails, domain) {
   return { status: 'created', appId: appId };
 }
 
-async function handleList(env, corsHeaders) {
+async function handleList(env, corsHeaders, username) {
   try {
     const response = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/pages/projects`,
@@ -661,15 +809,20 @@ async function handleList(env, corsHeaders) {
       });
     }
 
-    const projects = result.result.map(p => ({
-      name: p.name,
-      subdomain: p.subdomain,
-      url: `https://${p.subdomain}.pages.dev`,
-      created: p.created_on
-    }));
+    // Filter to only this user's projects (prefixed with username-)
+    const userPrefix = `${username}-`;
+    const projects = result.result
+      .filter(p => p.name.startsWith(userPrefix))
+      .map(p => ({
+        name: p.name,
+        shortName: p.name.replace(userPrefix, ''),
+        url: `https://${p.name}.pages.dev`,
+        created: p.created_on
+      }));
 
     return new Response(JSON.stringify({
       success: true,
+      username,
       projects
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -686,9 +839,9 @@ async function handleList(env, corsHeaders) {
   }
 }
 
-async function handleDelete(request, env, corsHeaders) {
+async function handleDelete(request, env, corsHeaders, username) {
   try {
-    const projectName = request.headers.get('X-Project-Name');
+    let projectName = request.headers.get('X-Project-Name');
 
     if (!projectName) {
       return new Response(JSON.stringify({ error: 'Project name required' }), {
@@ -697,9 +850,22 @@ async function handleDelete(request, env, corsHeaders) {
       });
     }
 
+    // Add username prefix if not already present
+    const fullProjectName = projectName.startsWith(`${username}-`)
+      ? projectName
+      : `${username}-${projectName}`;
+
+    // Verify project belongs to user
+    if (!fullProjectName.startsWith(`${username}-`)) {
+      return new Response(JSON.stringify({ error: 'You can only delete your own projects' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
     // Delete the Pages project
     const deleteResponse = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/pages/projects/${projectName}`,
+      `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/pages/projects/${fullProjectName}`,
       {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${env.CF_API_TOKEN}` }
@@ -718,8 +884,8 @@ async function handleDelete(request, env, corsHeaders) {
       });
     }
 
-    // Also try to delete any Access app for this project
-    const appDomain = `${projectName}.pages.dev`;
+    // Also delete any Access app
+    const appDomain = `${fullProjectName}.pages.dev`;
     const listResponse = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/access/apps`,
       {
@@ -729,7 +895,7 @@ async function handleDelete(request, env, corsHeaders) {
 
     const listResult = await listResponse.json();
     const existingApp = listResult.result?.find(app =>
-      app.domain === appDomain || app.name === projectName
+      app.domain === appDomain || app.name === fullProjectName
     );
 
     if (existingApp) {
@@ -744,7 +910,7 @@ async function handleDelete(request, env, corsHeaders) {
 
     return new Response(JSON.stringify({
       success: true,
-      message: `Project '${projectName}' deleted`
+      message: `Project '${fullProjectName}' deleted`
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });

@@ -5,6 +5,11 @@ compatibility_date = "2024-01-01"
 # You'll set these after deploying:
 # wrangler secret put CF_API_TOKEN
 # wrangler secret put CF_ACCOUNT_ID
+# wrangler secret put REGISTRATION_CODE  (optional, for invite-only registration)
 
 [vars]
 # Non-sensitive config can go here
+
+[[kv_namespaces]]
+binding = "USERS"
+id = "c518e88a0d6b4b598acd481e9e166f0a"

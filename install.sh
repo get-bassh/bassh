@@ -10,6 +10,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 REPO="bob-rietveld/share-site"
@@ -50,12 +51,11 @@ else
   SHELL_RC="$HOME/.bashrc"
 fi
 
+echo -e "${GREEN}✓ Installed to $INSTALL_DIR/$SCRIPT_NAME${NC}"
+echo ""
+
 # Check if SHARE_SITE_API is already set
-if grep -q "SHARE_SITE_API" "$SHELL_RC" 2>/dev/null; then
-  echo -e "${GREEN}✓ Installed to $INSTALL_DIR/$SCRIPT_NAME${NC}"
-  echo -e "${BLUE}SHARE_SITE_API already configured in $SHELL_RC${NC}"
-else
-  # Prompt for worker URL
+if ! grep -q "SHARE_SITE_API" "$SHELL_RC" 2>/dev/null; then
   echo -e "${YELLOW}Enter your share-site worker URL${NC}"
   echo -e "${BLUE}(e.g., https://share-site-api.yourname.workers.dev)${NC}"
   echo ""
@@ -70,6 +70,32 @@ else
     echo -e "${YELLOW}Skipped. Set it later with:${NC}"
     echo "  export SHARE_SITE_API=https://your-worker.workers.dev"
   fi
+else
+  echo -e "${BLUE}SHARE_SITE_API already configured in $SHELL_RC${NC}"
+fi
+
+# Check if SHARE_SITE_KEY is already set
+if ! grep -q "SHARE_SITE_KEY" "$SHELL_RC" 2>/dev/null; then
+  echo ""
+  echo -e "${YELLOW}Do you have an API key? (y/n)${NC}"
+  read -p "> " HAS_KEY
+
+  if [[ "$HAS_KEY" == "y" || "$HAS_KEY" == "Y" ]]; then
+    echo -e "${YELLOW}Enter your API key:${NC}"
+    read -p "API Key: " API_KEY
+
+    if [[ -n "$API_KEY" ]]; then
+      echo "export SHARE_SITE_KEY=\"$API_KEY\"" >> "$SHELL_RC"
+      echo -e "${GREEN}✓ Added SHARE_SITE_KEY to $SHELL_RC${NC}"
+    fi
+  else
+    echo ""
+    echo -e "${CYAN}You can register for an API key after installation:${NC}"
+    echo "  source $SHELL_RC"
+    echo "  share-site register <your-username>"
+  fi
+else
+  echo -e "${BLUE}SHARE_SITE_KEY already configured in $SHELL_RC${NC}"
 fi
 
 # Check if install dir is in PATH
@@ -80,7 +106,15 @@ if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
 fi
 
 echo ""
+echo -e "${GREEN}════════════════════════════════════════${NC}"
 echo -e "${GREEN}✓ Installation complete!${NC}"
+echo -e "${GREEN}════════════════════════════════════════${NC}"
 echo ""
 echo -e "Run: ${BLUE}source $SHELL_RC${NC}"
-echo -e "Then: ${BLUE}share-site --help${NC}"
+echo ""
+echo -e "Then register (if you haven't already):"
+echo -e "  ${CYAN}share-site register <username>${NC}"
+echo ""
+echo -e "Or start deploying:"
+echo -e "  ${CYAN}share-site ./my-folder${NC}"
+echo ""
