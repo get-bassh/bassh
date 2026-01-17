@@ -90,6 +90,7 @@ Ready to deploy. Options:
 
 Password: (required for protection, or I'll generate one)
 Project name: (optional, auto-generated if not provided)
+Custom domain: (optional, e.g., docs.example.com)
 
 What password would you like? Or say "generate" for a random one.
 ```
@@ -129,6 +130,11 @@ Deploy with share-site:
 share-site "$DEPLOY_DIR" -p "PASSWORD" -n "PROJECT_NAME"
 ```
 
+Or with custom domain:
+```bash
+share-site "$DEPLOY_DIR" -p "PASSWORD" -n "PROJECT_NAME" --custom-domain "CUSTOM_DOMAIN"
+```
+
 Or without project name:
 ```bash
 share-site "$DEPLOY_DIR" -p "PASSWORD"
@@ -151,6 +157,18 @@ URL: [extracted URL]
 Password: [the password used]
 
 Share the URL and password separately for security.
+```
+
+**If custom domain was used**, also include the DNS instructions shown in the output:
+```
+Custom domain: docs.example.com
+
+Add this DNS record at your domain provider:
+  Type:  CNAME
+  Name:  docs
+  Value: username-project.pages.dev
+
+Once configured, https://docs.example.com will be live.
 ```
 
 **If deployment failed**, check the error:

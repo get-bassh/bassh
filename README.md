@@ -44,7 +44,41 @@ share-site ./my-site -e "alice@gmail.com,bob@company.com"
 
 # Domain-restricted access
 share-site ./my-site -d "@company.com"
+
+# With custom domain
+share-site ./my-site --custom-domain docs.example.com
 ```
+
+### Custom Domains
+
+Attach your own domain to any deployed site:
+
+```bash
+share-site ./my-site -n my-project --custom-domain docs.example.com
+```
+
+After deployment, the CLI shows DNS instructions:
+
+```
+Custom domain: docs.example.com
+Status: pending
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Add this DNS record at your domain provider:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    Type:  CNAME
+    Name:  docs
+    Value: username-my-project.pages.dev
+
+Once DNS is configured, https://docs.example.com will be live.
+(SSL is provisioned automatically by Cloudflare)
+```
+
+**Notes:**
+- Subdomains (docs.example.com, www.example.com) work with any DNS provider via CNAME
+- Root domains (example.com) require CNAME flattening (Cloudflare DNS) or ALIAS records
+- Cloudflare automatically provisions and renews SSL certificates
 
 ### Manage Your Sites
 

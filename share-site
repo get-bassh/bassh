@@ -26,6 +26,7 @@ PASSWORD=""
 PROJECT_NAME=""
 EMAILS=""
 DOMAIN=""
+CUSTOM_DOMAIN=""
 DELETE_MODE=false
 LIST_MODE=false
 REGISTER_MODE=false
@@ -132,6 +133,10 @@ while [[ $# -gt 0 ]]; do
       DOMAIN="$2"
       shift 2
       ;;
+    --custom-domain)
+      CUSTOM_DOMAIN="$2"
+      shift 2
+      ;;
     --delete|-D)
       DELETE_MODE=true
       shift
@@ -160,6 +165,7 @@ while [[ $# -gt 0 ]]; do
       echo "  -e, --emails <list>       Restrict to specific emails (comma-separated)"
       echo "  -d, --domain <domain>     Allow all emails from domain (e.g., @company.com)"
       echo "  -n, --name <name>         Project name (auto-generated if not provided)"
+      echo "  --custom-domain <domain>  Attach a custom domain (e.g., docs.example.com)"
       echo "  -l, --list                List your projects"
       echo "  -D, --delete              Delete a project (requires -n)"
       echo "  -h, --help                Show this help"
@@ -173,13 +179,14 @@ while [[ $# -gt 0 ]]; do
       echo "  share-site register alice"
       echo ""
       echo "Deploy Examples:"
-      echo "  share-site                          # Deploy current directory"
-      echo "  share-site ./my-site                # Deploy specific directory"
-      echo "  share-site -p secret123             # With password"
-      echo "  share-site -e \"a@x.com,b@y.com\"     # Only these emails can access"
-      echo "  share-site -d \"@company.com\"        # Anyone @company.com can access"
-      echo "  share-site -l                       # List your projects"
-      echo "  share-site -D -n my-project         # Delete a project"
+      echo "  share-site                                      # Deploy current directory"
+      echo "  share-site ./my-site                            # Deploy specific directory"
+      echo "  share-site -p secret123                         # With password"
+      echo "  share-site -e \"a@x.com,b@y.com\"                 # Only these emails can access"
+      echo "  share-site -d \"@company.com\"                    # Anyone @company.com can access"
+      echo "  share-site --custom-domain docs.example.com     # With custom domain"
+      echo "  share-site -l                                   # List your projects"
+      echo "  share-site -D -n my-project                     # Delete a project"
       echo ""
       echo "Other Commands:"
       echo "  share-site me                       # Show your username"
@@ -623,6 +630,28 @@ if ! validate_project_name "$PROJECT_NAME"; then
   exit 1
 fi
 
+# Validate custom domain if provided
+validate_domain() {
+  local domain="$1"
+  # Basic validation: alphanumeric, dots, dashes, valid TLD
+  if [[ ! "$domain" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$ ]]; then
+    return 1
+  fi
+  return 0
+}
+
+if [[ -n "$CUSTOM_DOMAIN" ]]; then
+  if ! validate_domain "$CUSTOM_DOMAIN"; then
+    echo -e "${RED}Error: Invalid domain format '$CUSTOM_DOMAIN'${NC}"
+    echo ""
+    echo "Examples of valid domains:"
+    echo "  • docs.example.com"
+    echo "  • www.example.com"
+    echo "  • example.com"
+    exit 1
+  fi
+fi
+
 # Create temp directory for processing
 TEMP_DIR=$(mktemp -d)
 DEPLOY_DIR="$TEMP_DIR/deploy"
@@ -693,6 +722,7 @@ RESPONSE=$(curl -s -X POST "$WORKER_URL" \
   -H "X-Password: $PASSWORD" \
   -H "X-Emails: $EMAILS" \
   -H "X-Domain: $DOMAIN" \
+  -H "X-Custom-Domain: $CUSTOM_DOMAIN" \
   --data-binary "@$JSON_FILE")
 
 # Cleanup
@@ -726,6 +756,49 @@ if echo "$RESPONSE" | grep -q '"success":true'; then
   if [[ -n "$EMAILS" || -n "$DOMAIN" ]]; then
     echo ""
     echo -e "  ${CYAN}Visitors will verify via email before accessing.${NC}"
+  fi
+
+  # Display custom domain info if configured
+  if [[ -n "$CUSTOM_DOMAIN" ]]; then
+    CNAME_TARGET=$(echo "$RESPONSE" | grep -oE '"cname":"[^"]+"' | cut -d'"' -f4)
+    DOMAIN_STATUS=$(echo "$RESPONSE" | grep -oE '"status":"[^"]+"' | head -1 | cut -d'"' -f4)
+    DOMAIN_ERROR=$(echo "$RESPONSE" | grep -oE '"customDomain":\{[^}]*"error":"[^"]+"' | grep -oE '"error":"[^"]+"' | cut -d'"' -f4)
+
+    echo ""
+    echo -e "  ${BLUE}Custom domain:${NC} $CUSTOM_DOMAIN"
+
+    if [[ -n "$DOMAIN_ERROR" ]]; then
+      echo -e "  ${RED}Error:${NC} $DOMAIN_ERROR"
+    else
+      echo -e "  ${BLUE}Status:${NC} ${DOMAIN_STATUS:-pending}"
+      echo ""
+      echo -e "  ${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo -e "  ${YELLOW}Add this DNS record at your domain provider:${NC}"
+      echo -e "  ${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      echo ""
+
+      # Check if root domain or subdomain
+      if [[ "$CUSTOM_DOMAIN" =~ ^[^.]+\.[^.]+$ ]]; then
+        # Root domain (e.g., example.com)
+        echo -e "  ${CYAN}For Cloudflare DNS:${NC}"
+        echo -e "    Type:  ${GREEN}CNAME${NC}"
+        echo -e "    Name:  ${GREEN}@${NC}"
+        echo -e "    Value: ${GREEN}${CNAME_TARGET:-$PROJECT.$SHORT_NAME.pages.dev}${NC}"
+        echo ""
+        echo -e "  ${CYAN}For other DNS providers:${NC}"
+        echo -e "    Use ALIAS/ANAME record, or redirect to www"
+      else
+        # Subdomain (e.g., docs.example.com, www.example.com)
+        SUBDOMAIN="${CUSTOM_DOMAIN%%.*}"
+        echo -e "    Type:  ${GREEN}CNAME${NC}"
+        echo -e "    Name:  ${GREEN}$SUBDOMAIN${NC}"
+        echo -e "    Value: ${GREEN}${CNAME_TARGET:-$PROJECT.pages.dev}${NC}"
+      fi
+
+      echo ""
+      echo -e "  Once DNS is configured, ${CYAN}https://$CUSTOM_DOMAIN${NC} will be live."
+      echo -e "  ${BLUE}(SSL is provisioned automatically by Cloudflare)${NC}"
+    fi
   fi
 
   echo ""

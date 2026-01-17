@@ -471,7 +471,7 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, X-Project-Name, X-Password, X-Emails, X-Domain, X-API-Key, X-Machine-ID',
+      'Access-Control-Allow-Headers': 'Content-Type, X-Project-Name, X-Password, X-Emails, X-Domain, X-API-Key, X-Machine-ID, X-Custom-Domain',
     };
 
     if (request.method === 'OPTIONS') {
@@ -544,6 +544,7 @@ async function handleDeploy(request, env, corsHeaders, username) {
     const password = request.headers.get('X-Password') || '';
     const emails = request.headers.get('X-Emails') || '';
     const domain = request.headers.get('X-Domain') || '';
+    const customDomain = request.headers.get('X-Custom-Domain') || '';
 
     // Namespace project name with username
     const fullProjectName = `${username}-${projectName}`;
@@ -711,6 +712,12 @@ async function handleDeploy(request, env, corsHeaders, username) {
       accessSetup = await setupAccess(env, fullProjectName, emails, domain);
     }
 
+    // Set up custom domain if provided
+    let customDomainResult = null;
+    if (customDomain) {
+      customDomainResult = await addCustomDomain(env, fullProjectName, customDomain);
+    }
+
     return new Response(JSON.stringify({
       success: true,
       url: siteUrl,
@@ -718,6 +725,7 @@ async function handleDeploy(request, env, corsHeaders, username) {
       shortName: projectName,
       deployment: deployResult.result,
       access: accessSetup,
+      customDomain: customDomainResult,
       protection: {
         password: password ? true : false,
         emails: emails || null,
@@ -770,6 +778,49 @@ function getContentType(path) {
     'wav': 'audio/wav',
   };
   return types[ext] || 'application/octet-stream';
+}
+
+async function addCustomDomain(env, projectName, domain) {
+  try {
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/pages/projects/${projectName}/domains`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${env.CF_API_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name: domain }),
+      }
+    );
+
+    const result = await response.json();
+
+    if (!result.success) {
+      // Check for common errors
+      const errorMsg = result.errors?.[0]?.message || 'Unknown error';
+      return {
+        success: false,
+        domain: domain,
+        error: errorMsg,
+        cname: `${projectName}.pages.dev`,
+      };
+    }
+
+    return {
+      success: true,
+      domain: domain,
+      status: result.result?.status || 'pending',
+      cname: `${projectName}.pages.dev`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      domain: domain,
+      error: error.message,
+      cname: `${projectName}.pages.dev`,
+    };
+  }
 }
 
 async function ensureProject(env, projectName) {
