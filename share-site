@@ -681,16 +681,21 @@ if [[ "$LIST_MODE" == true ]]; then
     echo -e "${GREEN}Projects for $USERNAME:${NC}"
     echo ""
 
-    # Parse projects - extract shortName and url pairs
-    echo "$RESPONSE" | grep -oE '"shortName":"[^"]+"|"url":"[^"]+"' | while read -r line; do
-      if [[ "$line" == *'"shortName"'* ]]; then
-        NAME=$(echo "$line" | cut -d'"' -f4)
-        echo -e "  ${BLUE}•${NC} $NAME"
-      elif [[ "$line" == *'"url"'* ]]; then
-        URL=$(echo "$line" | cut -d'"' -f4)
-        echo -e "    ${CYAN}$URL${NC}"
-      fi
-    done
+    # Parse projects using Python for reliable JSON handling
+    echo "$RESPONSE" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for p in data.get('projects', []):
+    name = p.get('shortName', p.get('name', ''))
+    url = p.get('url', '')
+    custom = p.get('customDomain')
+    if custom:
+        print(f'  \033[0;34m•\033[0m {name}')
+        print(f'    \033[0;36m{url}\033[0m \033[0;33m(custom domain)\033[0m')
+    else:
+        print(f'  \033[0;34m•\033[0m {name}')
+        print(f'    \033[0;36m{url}\033[0m')
+"
     echo ""
   else
     ERROR=$(echo "$RESPONSE" | grep -oE '"error":"[^"]+"' | cut -d'"' -f4)

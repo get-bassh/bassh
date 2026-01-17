@@ -1013,12 +1013,17 @@ async function handleList(env, corsHeaders, username) {
     const userPrefix = `${username}-`;
     const projects = result.result
       .filter(p => p.name.startsWith(userPrefix))
-      .map(p => ({
-        name: p.name,
-        shortName: p.name.replace(userPrefix, ''),
-        url: `https://${p.name}.pages.dev`,
-        created: p.created_on
-      }));
+      .map(p => {
+        // Get custom domain if configured (exclude *.pages.dev)
+        const customDomain = (p.domains || []).find(d => !d.endsWith('.pages.dev'));
+        return {
+          name: p.name,
+          shortName: p.name.replace(userPrefix, ''),
+          url: customDomain ? `https://${customDomain}` : `https://${p.name}.pages.dev`,
+          customDomain: customDomain || null,
+          created: p.created_on
+        };
+      });
 
     return new Response(JSON.stringify({
       success: true,
