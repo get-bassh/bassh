@@ -39,15 +39,42 @@ share-site ./my-site -n my-project
 # Password protected
 share-site ./my-site -p secret123
 
-# Email-restricted access
+# Email magic link (visitors get link via email)
+share-site ./my-site -o "alice@gmail.com,bob@company.com"
+
+# Email magic link for domain
+share-site ./my-site -o "@company.com"
+
+# Cloudflare Access email restriction
 share-site ./my-site -e "alice@gmail.com,bob@company.com"
 
-# Domain-restricted access
+# Cloudflare Access domain restriction
 share-site ./my-site -d "@company.com"
 
 # With custom domain
 share-site ./my-site --custom-domain docs.example.com
 ```
+
+### Email Magic Links
+
+Protect your site with email verification. Visitors enter their email and receive a magic link to access.
+
+```bash
+share-site ./my-site -o "alice@gmail.com,bob@company.com"
+```
+
+**How it works:**
+1. Visitor enters their email on the protected page
+2. If email is in the allowlist, they receive a magic link
+3. Clicking the link decrypts and shows the content
+4. Links expire after 5 minutes
+
+**Supports domains:**
+```bash
+share-site ./my-site -o "@company.com"
+```
+
+**Note:** Requires operator to configure Resend API key (see Operator Setup).
 
 ### Custom Domains
 
@@ -249,13 +276,28 @@ npx wrangler secret put CF_API_TOKEN
 npx wrangler secret put CF_ACCOUNT_ID
 ```
 
-#### 5. Deploy
+#### 5. (Optional) Enable Email Magic Links
+
+To support the `-o` flag for email magic links, set up [Resend](https://resend.com):
+
+1. Create a free Resend account
+2. Add your domain and configure DNS records
+3. Generate an API key
+4. Set the secrets:
+
+```bash
+npx wrangler secret put RESEND_API_KEY
+npx wrangler secret put RESEND_FROM
+# RESEND_FROM should be your verified sender, e.g., access@yourdomain.com
+```
+
+#### 6. Deploy
 
 ```bash
 npx wrangler deploy
 ```
 
-#### 6. Create Invite Code
+#### 7. Create Invite Code
 
 ```bash
 npx wrangler secret put REGISTRATION_CODE

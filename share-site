@@ -27,6 +27,7 @@ PROJECT_NAME=""
 EMAILS=""
 DOMAIN=""
 CUSTOM_DOMAIN=""
+OTP_EMAILS=""
 DELETE_MODE=false
 LIST_MODE=false
 REGISTER_MODE=false
@@ -156,6 +157,10 @@ while [[ $# -gt 0 ]]; do
       CUSTOM_DOMAIN="$2"
       shift 2
       ;;
+    --otp|-o)
+      OTP_EMAILS="$2"
+      shift 2
+      ;;
     --delete|-D)
       DELETE_MODE=true
       shift
@@ -182,8 +187,9 @@ while [[ $# -gt 0 ]]; do
       echo ""
       echo "Deploy Options:"
       echo "  -p, --password <pass>     Add AES-256-GCM encrypted password protection"
-      echo "  -e, --emails <list>       Restrict to specific emails (comma-separated)"
-      echo "  -d, --domain <domain>     Allow all emails from domain (e.g., @company.com)"
+      echo "  -o, --otp <emails>        Email magic link protection (comma-separated emails/domains)"
+      echo "  -e, --emails <list>       Restrict via Cloudflare Access (comma-separated emails)"
+      echo "  -d, --domain <domain>     Allow all emails from domain via Cloudflare Access"
       echo "  -n, --name <name>         Project name (auto-generated if not provided)"
       echo "  --custom-domain <domain>  Attach a custom domain (e.g., docs.example.com)"
       echo "  -l, --list                List your projects"
@@ -202,8 +208,10 @@ while [[ $# -gt 0 ]]; do
       echo "  share-site                                      # Deploy current directory"
       echo "  share-site ./my-site                            # Deploy specific directory"
       echo "  share-site -p secret123                         # With password"
-      echo "  share-site -e \"a@x.com,b@y.com\"                 # Only these emails can access"
-      echo "  share-site -d \"@company.com\"                    # Anyone @company.com can access"
+      echo "  share-site -o \"a@x.com,b@y.com\"                 # Email magic link (via Resend)"
+      echo "  share-site -o \"@company.com\"                    # Anyone @company.com gets magic link"
+      echo "  share-site -e \"a@x.com,b@y.com\"                 # Cloudflare Access email restriction"
+      echo "  share-site -d \"@company.com\"                    # Cloudflare Access domain restriction"
       echo "  share-site --custom-domain docs.example.com     # With custom domain"
       echo "  share-site -l                                   # List your projects"
       echo "  share-site -D -n my-project                     # Delete a project"
@@ -890,6 +898,7 @@ RESPONSE=$(curl -s -X POST "$WORKER_URL" \
   -H "X-Emails: $EMAILS" \
   -H "X-Domain: $DOMAIN" \
   -H "X-Custom-Domain: $CUSTOM_DOMAIN" \
+  -H "X-OTP-Emails: $OTP_EMAILS" \
   --data-binary "@$JSON_FILE")
 
 # Cleanup
@@ -920,9 +929,15 @@ if echo "$RESPONSE" | grep -q '"success":true'; then
     echo -e "  ${BLUE}Allowed domain:${NC} $DOMAIN"
   fi
 
+  if [[ -n "$OTP_EMAILS" ]]; then
+    echo -e "  ${BLUE}Email access:${NC} $OTP_EMAILS"
+    echo ""
+    echo -e "  ${CYAN}Visitors enter their email and receive a magic link.${NC}"
+  fi
+
   if [[ -n "$EMAILS" || -n "$DOMAIN" ]]; then
     echo ""
-    echo -e "  ${CYAN}Visitors will verify via email before accessing.${NC}"
+    echo -e "  ${CYAN}Visitors will verify via Cloudflare Access.${NC}"
   fi
 
   # Display custom domain info if configured

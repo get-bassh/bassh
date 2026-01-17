@@ -473,6 +473,487 @@ function getDecryptTemplate(encryptedData) {
 }
 
 // ============================================================
+// EMAIL OTP ENCRYPTION (Key-based AES-256-GCM)
+// ============================================================
+
+// Generate a random encryption key (hex string)
+function generateEncryptionKey() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Generate a random OTP code
+function generateOTP() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 32);
+}
+
+// Encrypt HTML with a raw key (not password-derived)
+async function encryptHTMLWithKey(htmlContent, hexKey) {
+  const encoder = new TextEncoder();
+
+  // Convert hex key to bytes
+  const keyBytes = new Uint8Array(hexKey.match(/.{2}/g).map(b => parseInt(b, 16)));
+  const iv = crypto.getRandomValues(new Uint8Array(16));
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    keyBytes,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt']
+  );
+
+  const encrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: iv },
+    key,
+    encoder.encode(htmlContent)
+  );
+
+  // Combine IV + encrypted data
+  const combined = new Uint8Array(iv.length + encrypted.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(encrypted), iv.length);
+
+  let binary = '';
+  const chunkSize = 8192;
+  for (let i = 0; i < combined.length; i += chunkSize) {
+    const chunk = combined.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, chunk);
+  }
+  return btoa(binary);
+}
+
+// Template for email OTP protected pages
+function getOTPDecryptTemplate(encryptedData, projectName, apiUrl, allowedEmails) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Protected Page</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      background: white;
+      padding: 2.5rem;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.1);
+      max-width: 360px;
+      width: 90%;
+      text-align: center;
+    }
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #1a1a1a;
+      margin-bottom: 0.5rem;
+    }
+    p {
+      color: #666;
+      font-size: 0.875rem;
+      margin-bottom: 1.5rem;
+    }
+    input {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 1rem;
+      margin-bottom: 1rem;
+      transition: border-color 0.2s;
+    }
+    input:focus {
+      outline: none;
+      border-color: #0066ff;
+    }
+    button {
+      width: 100%;
+      padding: 0.75rem;
+      background: #0066ff;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #0052cc; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    .error {
+      color: #dc3545;
+      font-size: 0.875rem;
+      margin-top: 1rem;
+      display: none;
+    }
+    .success {
+      color: #22c55e;
+      font-size: 0.875rem;
+      margin-top: 1rem;
+      display: none;
+    }
+    .icon {
+      width: 48px;
+      height: 48px;
+      background: #f0f0f0;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 1rem;
+    }
+    .icon svg { width: 24px; height: 24px; color: #666; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="container" id="emailForm">
+    <div class="icon">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+      </svg>
+    </div>
+    <h1>Protected Page</h1>
+    <p>Enter your email to receive an access link.</p>
+    <form id="form">
+      <input type="email" id="email" placeholder="Email address" autofocus required>
+      <button type="submit" id="btn">Send Access Link</button>
+    </form>
+    <p class="error" id="error"></p>
+    <p class="success" id="success">Check your inbox for the access link.</p>
+  </div>
+
+  <div class="container hidden" id="verifying">
+    <div class="icon">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+      </svg>
+    </div>
+    <h1>Verifying...</h1>
+    <p>Please wait while we verify your access.</p>
+    <p class="error" id="verifyError"></p>
+  </div>
+
+  <script>
+    (function() {
+      const ENCRYPTED = "${encryptedData}";
+      const PROJECT = "${projectName}";
+      const API_URL = "${apiUrl}";
+      const ALLOWED = ${JSON.stringify(allowedEmails)};
+
+      // Check for OTP in URL
+      const params = new URLSearchParams(window.location.search);
+      const otp = params.get('otp');
+
+      if (otp) {
+        // Verify OTP and decrypt
+        document.getElementById('emailForm').classList.add('hidden');
+        document.getElementById('verifying').classList.remove('hidden');
+
+        verifyAndDecrypt(otp);
+      }
+
+      async function verifyAndDecrypt(otp) {
+        try {
+          const res = await fetch(API_URL + '/otp/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ otp, project: PROJECT })
+          });
+
+          const data = await res.json();
+
+          if (!res.ok || !data.key) {
+            document.getElementById('verifyError').textContent = data.error || 'Invalid or expired link';
+            document.getElementById('verifyError').style.display = 'block';
+            return;
+          }
+
+          // Decrypt with the key
+          const html = await decrypt(data.key);
+          if (html) {
+            // Clear URL params and replace page
+            window.history.replaceState({}, '', window.location.pathname);
+            document.open();
+            document.write(html);
+            document.close();
+          } else {
+            document.getElementById('verifyError').textContent = 'Failed to decrypt content';
+            document.getElementById('verifyError').style.display = 'block';
+          }
+        } catch (e) {
+          document.getElementById('verifyError').textContent = 'Network error. Please try again.';
+          document.getElementById('verifyError').style.display = 'block';
+        }
+      }
+
+      async function decrypt(hexKey) {
+        try {
+          const combined = Uint8Array.from(atob(ENCRYPTED), c => c.charCodeAt(0));
+          const iv = combined.slice(0, 16);
+          const data = combined.slice(16);
+
+          const keyBytes = new Uint8Array(hexKey.match(/.{2}/g).map(b => parseInt(b, 16)));
+
+          const key = await crypto.subtle.importKey(
+            'raw',
+            keyBytes,
+            { name: 'AES-GCM', length: 256 },
+            false,
+            ['decrypt']
+          );
+
+          const decrypted = await crypto.subtle.decrypt(
+            { name: 'AES-GCM', iv: iv },
+            key,
+            data
+          );
+
+          return new TextDecoder().decode(decrypted);
+        } catch (e) {
+          return null;
+        }
+      }
+
+      // Email form submission
+      document.getElementById('form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const email = document.getElementById('email').value.trim().toLowerCase();
+        const btn = document.getElementById('btn');
+        const error = document.getElementById('error');
+        const success = document.getElementById('success');
+
+        // Client-side allowlist check
+        let allowed = false;
+        for (const pattern of ALLOWED) {
+          if (pattern.startsWith('@')) {
+            if (email.endsWith(pattern)) allowed = true;
+          } else {
+            if (email === pattern.toLowerCase()) allowed = true;
+          }
+        }
+
+        if (!allowed) {
+          error.textContent = 'This email is not authorized to access this page.';
+          error.style.display = 'block';
+          success.style.display = 'none';
+          return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Sending...';
+        error.style.display = 'none';
+
+        try {
+          const res = await fetch(API_URL + '/otp/request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email,
+              project: PROJECT,
+              pageUrl: window.location.origin + window.location.pathname
+            })
+          });
+
+          const data = await res.json();
+
+          if (res.ok) {
+            success.style.display = 'block';
+            btn.textContent = 'Link Sent';
+          } else {
+            error.textContent = data.error || 'Failed to send link';
+            error.style.display = 'block';
+            btn.disabled = false;
+            btn.textContent = 'Send Access Link';
+          }
+        } catch (e) {
+          error.textContent = 'Network error. Please try again.';
+          error.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = 'Send Access Link';
+        }
+      });
+    })();
+  </script>
+</body>
+</html>`;
+}
+
+// Handle OTP request - send magic link email
+async function handleOTPRequest(request, env, corsHeaders) {
+  try {
+    const body = await request.json();
+    const { email, project, pageUrl } = body;
+
+    if (!email || !project || !pageUrl) {
+      return new Response(JSON.stringify({ error: 'Missing required fields' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Check if project exists and has OTP protection
+    const keyData = await env.USERS.get(`otp-key:${project}`, 'json');
+    if (!keyData) {
+      return new Response(JSON.stringify({ error: 'Invalid project' }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Check email against allowlist
+    const allowedEmails = keyData.emails || [];
+    let allowed = false;
+    const emailLower = email.toLowerCase();
+    for (const pattern of allowedEmails) {
+      if (pattern.startsWith('@')) {
+        if (emailLower.endsWith(pattern.toLowerCase())) allowed = true;
+      } else {
+        if (emailLower === pattern.toLowerCase()) allowed = true;
+      }
+    }
+
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: 'Email not authorized' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Rate limit: 3 requests per email per 15 minutes
+    const rateLimitKey = `otp-rate:${project}:${emailLower}`;
+    const rateCount = parseInt(await env.USERS.get(rateLimitKey) || '0');
+    if (rateCount >= 3) {
+      return new Response(JSON.stringify({ error: 'Too many requests. Please wait 15 minutes.' }), {
+        status: 429,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+    await env.USERS.put(rateLimitKey, String(rateCount + 1), { expirationTtl: 900 });
+
+    // Generate OTP and store it
+    const otp = generateOTP();
+    const otpKey = `otp:${project}:${otp}`;
+    await env.USERS.put(otpKey, JSON.stringify({
+      email: emailLower,
+      created: new Date().toISOString()
+    }), { expirationTtl: 300 }); // 5 minute expiry
+
+    // Build magic link
+    const magicLink = `${pageUrl}?otp=${otp}`;
+
+    // Send email via Resend
+    if (!env.RESEND_API_KEY) {
+      return new Response(JSON.stringify({ error: 'Email service not configured' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const emailRes = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: env.RESEND_FROM || 'access@share-site.dev',
+        to: email,
+        subject: 'Your Access Link',
+        html: `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #1a1a1a; margin-bottom: 16px;">Access Requested</h2>
+            <p style="color: #666; line-height: 1.6;">Click the button below to access the protected page. This link expires in 5 minutes.</p>
+            <a href="${magicLink}" style="display: inline-block; background: #0066ff; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500; margin: 20px 0;">Open Page</a>
+            <p style="color: #999; font-size: 14px;">If you didn't request this, you can ignore this email.</p>
+          </div>
+        `
+      })
+    });
+
+    if (!emailRes.ok) {
+      const emailError = await emailRes.text();
+      console.error('Resend error:', emailError);
+      return new Response(JSON.stringify({ error: 'Failed to send email' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    return new Response(JSON.stringify({ error: 'Internal error', message: error.message }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+// Handle OTP verify - check OTP and return decryption key
+async function handleOTPVerify(request, env, corsHeaders) {
+  try {
+    const body = await request.json();
+    const { otp, project } = body;
+
+    if (!otp || !project) {
+      return new Response(JSON.stringify({ error: 'Missing required fields' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Look up OTP
+    const otpKey = `otp:${project}:${otp}`;
+    const otpData = await env.USERS.get(otpKey, 'json');
+
+    if (!otpData) {
+      return new Response(JSON.stringify({ error: 'Invalid or expired link' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Delete OTP (one-time use)
+    await env.USERS.delete(otpKey);
+
+    // Get encryption key
+    const keyData = await env.USERS.get(`otp-key:${project}`, 'json');
+    if (!keyData || !keyData.key) {
+      return new Response(JSON.stringify({ error: 'Key not found' }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    return new Response(JSON.stringify({
+      success: true,
+      key: keyData.key
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    return new Response(JSON.stringify({ error: 'Internal error', message: error.message }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+// ============================================================
 // MAIN HANDLER
 // ============================================================
 
@@ -484,7 +965,7 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, X-Project-Name, X-Password, X-Emails, X-Domain, X-API-Key, X-Machine-ID, X-Custom-Domain',
+      'Access-Control-Allow-Headers': 'Content-Type, X-Project-Name, X-Password, X-Emails, X-Domain, X-API-Key, X-Machine-ID, X-Custom-Domain, X-OTP-Emails',
     };
 
     if (request.method === 'OPTIONS') {
@@ -516,6 +997,16 @@ export default {
         });
       }
       return handleFormSubmit(request, env, corsHeaders, projectName);
+    }
+
+    // Route: POST /otp/request - Request magic link email (public, no auth)
+    if (path === '/otp/request' && request.method === 'POST') {
+      return handleOTPRequest(request, env, corsHeaders);
+    }
+
+    // Route: POST /otp/verify - Verify OTP and get decryption key (public, no auth)
+    if (path === '/otp/verify' && request.method === 'POST') {
+      return handleOTPVerify(request, env, corsHeaders);
     }
 
     // All other routes require authentication (hybrid: machine ID or API key)
@@ -580,6 +1071,7 @@ async function handleDeploy(request, env, corsHeaders, username) {
     const emails = request.headers.get('X-Emails') || '';
     const domain = request.headers.get('X-Domain') || '';
     const customDomain = request.headers.get('X-Custom-Domain') || '';
+    const otpEmails = request.headers.get('X-OTP-Emails') || '';
 
     // Namespace project name with username
     const fullProjectName = `${username}-${projectName}`;
@@ -629,12 +1121,33 @@ async function handleDeploy(request, env, corsHeaders, username) {
       let content = file.content;
       let finalContent;
 
-      // Encrypt HTML files if password provided
+      // Encrypt HTML files if password or OTP emails provided
       if (password && path.endsWith('.html')) {
         const binaryString = atob(content);
         const originalHTML = binaryString;
         const encryptedData = await encryptHTML(originalHTML, password);
         const protectedHTML = getDecryptTemplate(encryptedData);
+        finalContent = btoa(protectedHTML);
+      } else if (otpEmails && path.endsWith('.html')) {
+        // OTP-based email protection
+        const binaryString = atob(content);
+        const originalHTML = binaryString;
+
+        // Generate encryption key if not exists, or reuse existing
+        let keyData = await env.USERS.get(`otp-key:${fullProjectName}`, 'json');
+        if (!keyData) {
+          keyData = { key: generateEncryptionKey() };
+        }
+        // Update emails list and save key
+        const emailList = otpEmails.split(',').map(e => e.trim()).filter(e => e);
+        keyData.emails = emailList;
+        await env.USERS.put(`otp-key:${fullProjectName}`, JSON.stringify(keyData));
+
+        // Get API URL from request
+        const apiUrl = new URL(request.url).origin;
+
+        const encryptedData = await encryptHTMLWithKey(originalHTML, keyData.key);
+        const protectedHTML = getOTPDecryptTemplate(encryptedData, fullProjectName, apiUrl, emailList);
         finalContent = btoa(protectedHTML);
       } else {
         finalContent = content;
@@ -764,7 +1277,8 @@ async function handleDeploy(request, env, corsHeaders, username) {
       protection: {
         password: password ? true : false,
         emails: emails || null,
-        domain: domain || null
+        domain: domain || null,
+        otpEmails: otpEmails || null
       }
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }

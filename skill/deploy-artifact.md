@@ -88,11 +88,14 @@ Ask the user:
 ```
 Ready to deploy. Options:
 
-Password: (required for protection, or I'll generate one)
+Protection:
+  • Password (-p): Anyone with password can access
+  • Email magic link (-o): Only listed emails can access (receives link via email)
+
 Project name: (optional, auto-generated if not provided)
 Custom domain: (optional, e.g., docs.example.com)
 
-What password would you like? Or say "generate" for a random one.
+How would you like to protect this? Password or email addresses?
 ```
 
 **If user provides a project name**, validate it first:
@@ -125,19 +128,24 @@ cat > "$DEPLOY_DIR/index.html" << 'HTMLEOF'
 HTMLEOF
 ```
 
-Deploy with share-site:
+**With password protection:**
 ```bash
 share-site "$DEPLOY_DIR" -p "PASSWORD" -n "PROJECT_NAME"
 ```
 
-Or with custom domain:
+**With email magic link:**
 ```bash
-share-site "$DEPLOY_DIR" -p "PASSWORD" -n "PROJECT_NAME" --custom-domain "CUSTOM_DOMAIN"
+share-site "$DEPLOY_DIR" -o "alice@gmail.com,bob@company.com" -n "PROJECT_NAME"
 ```
 
-Or without project name:
+**With domain-based email access:**
 ```bash
-share-site "$DEPLOY_DIR" -p "PASSWORD"
+share-site "$DEPLOY_DIR" -o "@company.com" -n "PROJECT_NAME"
+```
+
+**With custom domain:**
+```bash
+share-site "$DEPLOY_DIR" -p "PASSWORD" -n "PROJECT_NAME" --custom-domain "CUSTOM_DOMAIN"
 ```
 
 Clean up:
@@ -150,6 +158,8 @@ rm -rf "$DEPLOY_DIR"
 **If deployment succeeded** (output contains "Site deployed successfully"):
 
 Extract the URL from output and tell the user:
+
+**For password protection:**
 ```
 Deployed successfully!
 
@@ -157,6 +167,16 @@ URL: [extracted URL]
 Password: [the password used]
 
 Share the URL and password separately for security.
+```
+
+**For email magic link:**
+```
+Deployed successfully!
+
+URL: [extracted URL]
+Allowed emails: [the emails/domains]
+
+Only these emails can request a magic link to access.
 ```
 
 **If custom domain was used**, also include the DNS instructions shown in the output:
