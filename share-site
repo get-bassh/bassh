@@ -30,6 +30,7 @@ DELETE_MODE=false
 LIST_MODE=false
 REGISTER_MODE=false
 ME_MODE=false
+UNINSTALL_MODE=false
 REGISTER_USERNAME=""
 
 # Parse arguments
@@ -46,6 +47,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     me)
       ME_MODE=true
+      shift
+      ;;
+    uninstall)
+      UNINSTALL_MODE=true
       shift
       ;;
     --password|-p)
@@ -80,6 +85,7 @@ while [[ $# -gt 0 ]]; do
       echo "Commands:"
       echo "  register <username>       Create an account and get API key"
       echo "  me                        Show current user info"
+      echo "  uninstall                 Delete account, all sites, and remove CLI"
       echo ""
       echo "Options:"
       echo "  -p, --password <pass>     Add AES-256-GCM encrypted password protection"
@@ -100,6 +106,7 @@ while [[ $# -gt 0 ]]; do
       echo "  share-site -d \"@company.com\"        # Anyone @company.com can access"
       echo "  share-site -l                       # List your projects"
       echo "  share-site -D -n my-project         # Delete a project"
+      echo "  share-site uninstall                # Remove account and all data"
       echo ""
       echo "Environment:"
       echo "  SHARE_SITE_API    The deployment API URL"
@@ -221,6 +228,115 @@ if [[ "$ME_MODE" == true ]]; then
     echo ""
   else
     echo -e "${RED}Invalid API key${NC}"
+    exit 1
+  fi
+  exit 0
+fi
+
+# Handle uninstall mode
+if [[ "$UNINSTALL_MODE" == true ]]; then
+  if [[ -z "$API_KEY" ]]; then
+    echo -e "${RED}Error: API key not configured${NC}"
+    echo ""
+    echo "Set your API key:"
+    echo "  export SHARE_SITE_KEY=sk_your_key_here"
+    exit 1
+  fi
+
+  # Get user info first
+  ME_RESPONSE=$(curl -s -X GET "$WORKER_URL/me" \
+    -H "X-API-Key: $API_KEY")
+
+  if ! echo "$ME_RESPONSE" | grep -q '"success":true'; then
+    echo -e "${RED}Invalid API key${NC}"
+    exit 1
+  fi
+
+  USERNAME=$(echo "$ME_RESPONSE" | grep -oE '"username":"[^"]+"' | cut -d'"' -f4)
+
+  # Get projects for display
+  LIST_RESPONSE=$(curl -s -X GET "$WORKER_URL" \
+    -H "X-API-Key: $API_KEY")
+
+  echo ""
+  echo -e "${RED}════════════════════════════════════════${NC}"
+  echo -e "${RED}       UNINSTALL share-site${NC}"
+  echo -e "${RED}════════════════════════════════════════${NC}"
+  echo ""
+  echo -e "${YELLOW}This will permanently delete:${NC}"
+  echo ""
+  echo -e "  ${BLUE}•${NC} Your account: ${CYAN}$USERNAME${NC}"
+
+  # Show projects if any
+  if echo "$LIST_RESPONSE" | grep -q '"shortName"'; then
+    echo -e "  ${BLUE}•${NC} All your Cloudflare Pages projects:"
+    echo "$LIST_RESPONSE" | grep -oE '"shortName":"[^"]+"' | cut -d'"' -f4 | while read -r name; do
+      echo -e "      - $name"
+    done
+  fi
+
+  echo -e "  ${BLUE}•${NC} Associated Cloudflare Access policies"
+  echo -e "  ${BLUE}•${NC} Your API key from shell config"
+  echo ""
+  echo -e "${RED}This action cannot be undone!${NC}"
+  echo ""
+  echo -n -e "${YELLOW}Type 'DELETE' to confirm: ${NC}"
+  read -r CONFIRM
+
+  if [[ "$CONFIRM" != "DELETE" ]]; then
+    echo -e "${BLUE}Uninstall cancelled.${NC}"
+    exit 0
+  fi
+
+  echo ""
+  echo -e "${BLUE}Removing cloud resources...${NC}"
+
+  RESPONSE=$(curl -s -X POST "$WORKER_URL/uninstall" \
+    -H "X-API-Key: $API_KEY" \
+    -H "Content-Type: application/json")
+
+  if echo "$RESPONSE" | grep -q '"success":true'; then
+    PROJECTS_COUNT=$(echo "$RESPONSE" | grep -oE '"projectsCount":[0-9]+' | cut -d':' -f2)
+    APPS_COUNT=$(echo "$RESPONSE" | grep -oE '"appsCount":[0-9]+' | cut -d':' -f2)
+
+    echo -e "${GREEN}✓ Deleted $PROJECTS_COUNT project(s)${NC}"
+    echo -e "${GREEN}✓ Deleted $APPS_COUNT access app(s)${NC}"
+    echo -e "${GREEN}✓ Deleted user account${NC}"
+
+    # Remove API key from shell config
+    if [[ -f "$HOME/.zshrc" ]]; then
+      SHELL_RC="$HOME/.zshrc"
+    else
+      SHELL_RC="$HOME/.bashrc"
+    fi
+
+    if grep -q "SHARE_SITE_KEY" "$SHELL_RC" 2>/dev/null; then
+      sed -i '' '/SHARE_SITE_KEY/d' "$SHELL_RC" 2>/dev/null || sed -i '/SHARE_SITE_KEY/d' "$SHELL_RC"
+      echo -e "${GREEN}✓ Removed API key from $SHELL_RC${NC}"
+    fi
+
+    echo ""
+    echo -n -e "${YELLOW}Remove CLI script from system? (y/N): ${NC}"
+    read -r REMOVE_CLI
+
+    if [[ "$REMOVE_CLI" == "y" || "$REMOVE_CLI" == "Y" ]]; then
+      CLI_PATH=$(which share-site 2>/dev/null || echo "")
+      if [[ -n "$CLI_PATH" && -f "$CLI_PATH" ]]; then
+        rm -f "$CLI_PATH" 2>/dev/null && echo -e "${GREEN}✓ Removed CLI from $CLI_PATH${NC}" || echo -e "${YELLOW}Could not remove $CLI_PATH (may need sudo)${NC}"
+      else
+        echo -e "${BLUE}CLI not found in PATH, skipping${NC}"
+      fi
+    fi
+
+    echo ""
+    echo -e "${GREEN}════════════════════════════════════════${NC}"
+    echo -e "${GREEN}Uninstall complete!${NC}"
+    echo -e "${GREEN}════════════════════════════════════════${NC}"
+    echo ""
+  else
+    ERROR=$(echo "$RESPONSE" | grep -oE '"error":"[^"]+"' | cut -d'"' -f4)
+    echo -e "${RED}Uninstall failed: $ERROR${NC}"
+    echo "Response: $RESPONSE"
     exit 1
   fi
   exit 0

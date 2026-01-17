@@ -385,6 +385,11 @@ export default {
 
     const username = user.username;
 
+    // Route: POST /uninstall - Delete account and all resources
+    if (path === '/uninstall' && request.method === 'POST') {
+      return handleUninstall(request, env, corsHeaders, username, apiKey);
+    }
+
     // Route: GET / - List user's projects
     if (request.method === 'GET') {
       return handleList(env, corsHeaders, username);
@@ -831,6 +836,110 @@ async function handleList(env, corsHeaders, username) {
   } catch (error) {
     return new Response(JSON.stringify({
       error: 'Internal error',
+      message: error.message
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+async function handleUninstall(request, env, corsHeaders, username, apiKey) {
+  try {
+    const deletedProjects = [];
+    const deletedApps = [];
+    let errors = [];
+
+    // 1. Get all user's Pages projects
+    const projectsResponse = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/pages/projects`,
+      {
+        headers: { 'Authorization': `Bearer ${env.CF_API_TOKEN}` }
+      }
+    );
+
+    const projectsResult = await projectsResponse.json();
+
+    if (projectsResponse.ok) {
+      const userPrefix = `${username}-`;
+      const userProjects = projectsResult.result.filter(p => p.name.startsWith(userPrefix));
+
+      // Delete each project
+      for (const project of userProjects) {
+        const deleteResponse = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/pages/projects/${project.name}`,
+          {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${env.CF_API_TOKEN}` }
+          }
+        );
+
+        if (deleteResponse.ok) {
+          deletedProjects.push(project.name);
+        } else {
+          const errorResult = await deleteResponse.json();
+          errors.push({ type: 'project', name: project.name, error: errorResult });
+        }
+      }
+    }
+
+    // 2. Get and delete all user's Access apps
+    const appsResponse = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/access/apps`,
+      {
+        headers: { 'Authorization': `Bearer ${env.CF_API_TOKEN}` }
+      }
+    );
+
+    const appsResult = await appsResponse.json();
+
+    if (appsResponse.ok) {
+      const userPrefix = `${username}-`;
+      const userApps = appsResult.result.filter(app =>
+        app.name.startsWith(userPrefix) ||
+        (app.domain && app.domain.startsWith(userPrefix))
+      );
+
+      for (const app of userApps) {
+        const deleteResponse = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/access/apps/${app.id}`,
+          {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${env.CF_API_TOKEN}` }
+          }
+        );
+
+        if (deleteResponse.ok) {
+          deletedApps.push(app.name);
+        } else {
+          const errorResult = await deleteResponse.json();
+          errors.push({ type: 'access_app', name: app.name, error: errorResult });
+        }
+      }
+    }
+
+    // 3. Delete user from KV
+    await env.USERS.delete(`user:${username}`);
+    await env.USERS.delete(`key:${apiKey}`);
+
+    return new Response(JSON.stringify({
+      success: true,
+      message: 'Account and all resources deleted',
+      deleted: {
+        projectsCount: deletedProjects.length,
+        appsCount: deletedApps.length,
+        userRecord: true
+      },
+      projects: deletedProjects,
+      accessApps: deletedApps,
+      errors: errors.length > 0 ? errors : undefined
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    return new Response(JSON.stringify({
+      error: 'Internal error during uninstall',
       message: error.message
     }), {
       status: 500,
