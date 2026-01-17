@@ -493,6 +493,18 @@ export default {
       return handleKey(request, env, corsHeaders);
     }
 
+    // Route: POST /form/:projectName - Form submission (public, no auth)
+    if (path.startsWith('/form/') && request.method === 'POST') {
+      const projectName = path.replace('/form/', '');
+      if (!projectName) {
+        return new Response(JSON.stringify({ error: 'Project name required' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+      return handleFormSubmit(request, env, corsHeaders, projectName);
+    }
+
     // All other routes require authentication (hybrid: machine ID or API key)
     const user = await authenticateRequest(request, env);
 
@@ -510,6 +522,16 @@ export default {
     // Route: POST /uninstall - Delete account and all resources
     if (path === '/uninstall' && request.method === 'POST') {
       return handleUninstall(request, env, corsHeaders, username);
+    }
+
+    // Route: GET /forms - List form submissions
+    if (path === '/forms' && request.method === 'GET') {
+      return handleFormsList(request, env, corsHeaders, username);
+    }
+
+    // Route: DELETE /forms - Delete form submissions
+    if (path === '/forms' && request.method === 'DELETE') {
+      return handleFormsDelete(request, env, corsHeaders, username);
     }
 
     // Route: GET / - List user's projects
@@ -1130,6 +1152,305 @@ async function handleUninstall(request, env, corsHeaders, username) {
     });
   }
 }
+
+// ============================================================
+// FORM SUBMISSION HANDLERS
+// ============================================================
+
+// Hash IP for privacy (we don't store raw IPs)
+async function hashIP(ip) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(ip + 'share-site-salt');
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
+}
+
+// Check rate limit for form submissions (10/min per IP per project)
+async function checkFormRateLimit(env, ip, projectName) {
+  const hashedIP = await hashIP(ip);
+  const key = `ratelimit:form:${projectName}:${hashedIP}`;
+  const current = parseInt(await env.USERS.get(key) || '0');
+
+  if (current >= 10) {
+    return false;
+  }
+
+  await env.USERS.put(key, String(current + 1), { expirationTtl: 60 });
+  return true;
+}
+
+// Parse form data from request (supports urlencoded and JSON)
+async function parseFormData(request) {
+  const contentType = request.headers.get('Content-Type') || '';
+
+  if (contentType.includes('application/json')) {
+    return await request.json();
+  }
+
+  if (contentType.includes('application/x-www-form-urlencoded') || contentType.includes('multipart/form-data')) {
+    const formData = await request.formData();
+    const data = {};
+    for (const [key, value] of formData.entries()) {
+      data[key] = value;
+    }
+    return data;
+  }
+
+  // Try JSON as fallback
+  try {
+    return await request.json();
+  } catch {
+    return {};
+  }
+}
+
+// Handle form submission (public endpoint - no auth required)
+async function handleFormSubmit(request, env, corsHeaders, projectName) {
+  try {
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+
+    // Rate limit check
+    const allowed = await checkFormRateLimit(env, ip, projectName);
+    if (!allowed) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Rate limit exceeded. Please try again later.'
+      }), {
+        status: 429,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Parse form data
+    const formData = await parseFormData(request);
+
+    // Check payload size (10KB limit)
+    const payloadSize = JSON.stringify(formData).length;
+    if (payloadSize > 10240) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Payload too large. Maximum 10KB allowed.'
+      }), {
+        status: 413,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Check honeypot field (spam protection)
+    if (formData._honeypot) {
+      // Silently accept but don't store (looks like spam)
+      const redirect = formData._redirect || formData._next;
+      if (redirect) {
+        return Response.redirect(redirect, 302);
+      }
+      return new Response(JSON.stringify({ success: true, id: 'ignored' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Separate special fields from user data
+    const userData = {};
+    let redirect = null;
+
+    for (const [key, value] of Object.entries(formData)) {
+      if (key.startsWith('_')) {
+        if (key === '_redirect' || key === '_next') {
+          redirect = value;
+        }
+        // Skip other special fields (_honeypot, _subject, etc.)
+      } else {
+        userData[key] = value;
+      }
+    }
+
+    // Build submission record
+    const timestamp = Date.now();
+    const uuid = crypto.randomUUID();
+    const submission = {
+      _meta: {
+        submitted: new Date(timestamp).toISOString(),
+        ip: await hashIP(ip),
+        userAgent: request.headers.get('User-Agent') || '',
+        referer: request.headers.get('Referer') || ''
+      },
+      data: userData
+    };
+
+    // Store in FORMS KV with 90-day TTL
+    const key = `${projectName}:${timestamp}:${uuid}`;
+    await env.FORMS.put(key, JSON.stringify(submission), {
+      expirationTtl: 90 * 24 * 60 * 60 // 90 days
+    });
+
+    // Respond based on request type
+    const acceptHeader = request.headers.get('Accept') || '';
+
+    if (redirect) {
+      return Response.redirect(redirect, 302);
+    }
+
+    if (acceptHeader.includes('application/json')) {
+      return new Response(JSON.stringify({
+        success: true,
+        id: uuid,
+        message: 'Form submitted successfully'
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Default: return simple HTML thank you page
+    return new Response(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Thank You</title>
+        <style>
+          body { font-family: system-ui; text-align: center; padding: 50px; }
+          h1 { color: #22c55e; }
+        </style>
+      </head>
+      <body>
+        <h1>Thank You!</h1>
+        <p>Your submission has been received.</p>
+      </body>
+      </html>
+    `, {
+      headers: { ...corsHeaders, 'Content-Type': 'text/html' }
+    });
+
+  } catch (error) {
+    return new Response(JSON.stringify({
+      success: false,
+      error: 'Failed to process form submission',
+      message: error.message
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+// Handle form listing (authenticated)
+async function handleFormsList(request, env, corsHeaders, username) {
+  try {
+    const projectName = request.headers.get('X-Project-Name');
+
+    if (!projectName) {
+      return new Response(JSON.stringify({ error: 'Project name required (X-Project-Name header)' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Build full project name and verify ownership
+    const fullProjectName = projectName.startsWith(`${username}-`)
+      ? projectName
+      : `${username}-${projectName}`;
+
+    if (!fullProjectName.startsWith(`${username}-`)) {
+      return new Response(JSON.stringify({ error: 'You can only access your own project forms' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // List submissions from FORMS KV
+    const listResult = await env.FORMS.list({ prefix: `${fullProjectName}:` });
+
+    // Fetch all submissions
+    const submissions = [];
+    for (const key of listResult.keys) {
+      const value = await env.FORMS.get(key.name, 'json');
+      if (value) {
+        submissions.push({
+          id: key.name.split(':')[2], // Extract UUID
+          ...value
+        });
+      }
+    }
+
+    // Sort by timestamp descending (newest first)
+    submissions.sort((a, b) =>
+      new Date(b._meta.submitted) - new Date(a._meta.submitted)
+    );
+
+    return new Response(JSON.stringify({
+      success: true,
+      project: fullProjectName,
+      count: submissions.length,
+      submissions
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    return new Response(JSON.stringify({
+      error: 'Failed to list forms',
+      message: error.message
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+// Handle form deletion (authenticated)
+async function handleFormsDelete(request, env, corsHeaders, username) {
+  try {
+    const projectName = request.headers.get('X-Project-Name');
+
+    if (!projectName) {
+      return new Response(JSON.stringify({ error: 'Project name required (X-Project-Name header)' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Build full project name and verify ownership
+    const fullProjectName = projectName.startsWith(`${username}-`)
+      ? projectName
+      : `${username}-${projectName}`;
+
+    if (!fullProjectName.startsWith(`${username}-`)) {
+      return new Response(JSON.stringify({ error: 'You can only delete your own project forms' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // List and delete all submissions for this project
+    const listResult = await env.FORMS.list({ prefix: `${fullProjectName}:` });
+
+    let deleted = 0;
+    for (const key of listResult.keys) {
+      await env.FORMS.delete(key.name);
+      deleted++;
+    }
+
+    return new Response(JSON.stringify({
+      success: true,
+      project: fullProjectName,
+      deleted,
+      message: `Deleted ${deleted} submission(s)`
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    return new Response(JSON.stringify({
+      error: 'Failed to delete forms',
+      message: error.message
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+// ============================================================
+// DELETE HANDLER
+// ============================================================
 
 async function handleDelete(request, env, corsHeaders, username) {
   try {

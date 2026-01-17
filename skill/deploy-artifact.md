@@ -226,3 +226,54 @@ Unexpected error. Show full output and suggest:
 - Clean up temp directories after deployment
 - Never log or display the user's invite code after registration
 - The URL is public but content is encrypted - password required to view
+
+## Forms (Optional)
+
+If the user wants to collect form submissions from their deployed site, you can add a form that posts to the share-site API.
+
+### Adding a Form
+
+Get the API URL first:
+```bash
+share-site me
+```
+The output shows `API: https://share-site-api.yourname.workers.dev`
+
+Add a form to the HTML that posts to `/form/PROJECT_NAME`:
+```html
+<form action="https://share-site-api.yourname.workers.dev/form/my-project" method="POST">
+  <input type="text" name="name" required>
+  <input type="email" name="email" required>
+  <textarea name="message"></textarea>
+  <button type="submit">Send</button>
+</form>
+```
+
+Optional hidden fields:
+- `_redirect` - URL to redirect after submission
+- `_honeypot` - spam protection (should be empty, hide with CSS)
+
+### Viewing Submissions
+
+```bash
+# Human-readable list
+share-site forms -n my-project
+
+# Export as CSV
+share-site forms -n my-project --csv
+
+# Export as JSON
+share-site forms -n my-project --json
+
+# Count only
+share-site forms -n my-project --count
+
+# Clear all
+share-site forms -n my-project --clear
+```
+
+### Limits
+
+- 10 submissions/minute per IP
+- 10KB max payload
+- 90-day retention

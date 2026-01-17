@@ -80,6 +80,58 @@ Once DNS is configured, https://docs.example.com will be live.
 - Root domains (example.com) require CNAME flattening (Cloudflare DNS) or ALIAS records
 - Cloudflare automatically provisions and renews SSL certificates
 
+### Form Submissions
+
+Collect form data from your static sites. No backend needed.
+
+**1. Add a form to your HTML:**
+
+```html
+<form action="https://share-site-api.yourname.workers.dev/form/my-project" method="POST">
+  <input type="text" name="name" placeholder="Name" required>
+  <input type="email" name="email" placeholder="Email" required>
+  <textarea name="message" placeholder="Message"></textarea>
+  <button type="submit">Send</button>
+</form>
+```
+
+Get your API URL with `share-site me`.
+
+**2. View submissions:**
+
+```bash
+# List submissions (human-readable)
+share-site forms -n my-project
+
+# Export as CSV
+share-site forms -n my-project --csv > submissions.csv
+
+# Export as JSON
+share-site forms -n my-project --json
+
+# Count submissions
+share-site forms -n my-project --count
+
+# Clear all submissions
+share-site forms -n my-project --clear
+```
+
+**Optional features:**
+
+```html
+<!-- Redirect after submission -->
+<input type="hidden" name="_redirect" value="https://mysite.com/thanks.html">
+
+<!-- Honeypot spam protection (hidden field) -->
+<input type="hidden" name="_honeypot" value="">
+```
+
+**Limits:**
+- 10 submissions/minute per IP per project (rate limited)
+- 10KB max payload size
+- 90-day retention (auto-deleted)
+- Submissions require a valid project owned by you
+
 ### Manage Your Sites
 
 ```bash

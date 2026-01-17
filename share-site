@@ -36,6 +36,10 @@ KEY_REGENERATE=false
 UNINSTALL_MODE=false
 REGISTER_USERNAME=""
 INVITE_CODE=""
+FORMS_MODE=false
+FORMS_FORMAT=""
+FORMS_CLEAR=false
+FORMS_COUNT=false
 
 # Machine ID for one-account-per-computer enforcement
 CONFIG_DIR="$HOME/.share-site"
@@ -117,6 +121,21 @@ while [[ $# -gt 0 ]]; do
         shift
       fi
       ;;
+    forms)
+      FORMS_MODE=true
+      shift
+      while [[ $# -gt 0 ]]; do
+        case $1 in
+          --csv) FORMS_FORMAT="csv"; shift ;;
+          --json) FORMS_FORMAT="json"; shift ;;
+          --clear) FORMS_CLEAR=true; shift ;;
+          --count) FORMS_COUNT=true; shift ;;
+          -n|--name) PROJECT_NAME="$2"; shift 2 ;;
+          *) shift ;;
+        esac
+      done
+      break
+      ;;
     --password|-p)
       PASSWORD="$2"
       shift 2
@@ -155,6 +174,7 @@ while [[ $# -gt 0 ]]; do
       echo "  me                        Show current user info"
       echo "  key                       Show your API key"
       echo "  key --regenerate          Generate a new API key (invalidates old)"
+      echo "  forms -n <project>        View form submissions for a project"
       echo "  uninstall                 Delete account, all sites, and remove CLI"
       echo ""
       echo "Registration Options:"
@@ -189,10 +209,17 @@ while [[ $# -gt 0 ]]; do
       echo "  share-site -D -n my-project                     # Delete a project"
       echo ""
       echo "Other Commands:"
-      echo "  share-site me                       # Show your username"
+      echo "  share-site me                       # Show your username and API URL"
       echo "  share-site key                      # Show your API key"
       echo "  share-site key --regenerate         # Get a new API key"
       echo "  share-site uninstall                # Remove account and all data"
+      echo ""
+      echo "Form Submissions:"
+      echo "  share-site forms -n my-project      # View submissions"
+      echo "  share-site forms -n my-project --csv    # Export as CSV"
+      echo "  share-site forms -n my-project --json   # Export as JSON"
+      echo "  share-site forms -n my-project --count  # Show count only"
+      echo "  share-site forms -n my-project --clear  # Delete all submissions"
       echo ""
       echo "Environment:"
       echo "  SHARE_SITE_API    The deployment API URL (set automatically with invite code)"
@@ -316,6 +343,7 @@ if [[ "$ME_MODE" == true ]]; then
     CREATED=$(echo "$RESPONSE" | grep -oE '"created":"[^"]+"' | cut -d'"' -f4)
     echo ""
     echo -e "${GREEN}Logged in as:${NC} $USERNAME"
+    echo -e "${BLUE}API:${NC} $WORKER_URL"
     echo -e "${BLUE}Created:${NC} $CREATED"
     echo ""
   else
@@ -391,6 +419,135 @@ if [[ "$KEY_MODE" == true ]]; then
     fi
     exit 1
   fi
+  exit 0
+fi
+
+# Handle forms mode
+if [[ "$FORMS_MODE" == true ]]; then
+  if [[ -z "$PROJECT_NAME" ]]; then
+    echo -e "${RED}Error: Project name required. Use -n <name>${NC}"
+    echo ""
+    echo "Usage: share-site forms -n <project-name> [options]"
+    echo ""
+    echo "Options:"
+    echo "  --json    Export as JSON"
+    echo "  --csv     Export as CSV"
+    echo "  --count   Show count only"
+    echo "  --clear   Delete all submissions"
+    exit 1
+  fi
+
+  MACHINE_ID=$(get_machine_id)
+
+  # Handle clear
+  if [[ "$FORMS_CLEAR" == true ]]; then
+    echo -e "${YELLOW}Delete all form submissions for '$PROJECT_NAME'? (y/N)${NC}"
+    echo -n "> "
+    read -r CONFIRM < /dev/tty
+    if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
+      echo -e "${BLUE}Cancelled.${NC}"
+      exit 0
+    fi
+
+    RESPONSE=$(curl -s -X DELETE "$WORKER_URL/forms" \
+      -H "X-Machine-ID: $MACHINE_ID" \
+      -H "X-API-Key: $API_KEY" \
+      -H "X-Project-Name: $PROJECT_NAME")
+
+    if echo "$RESPONSE" | grep -q '"success":true'; then
+      DELETED=$(echo "$RESPONSE" | grep -oE '"deleted":[0-9]+' | cut -d':' -f2)
+      echo -e "${GREEN}✓ Deleted $DELETED submission(s)${NC}"
+    else
+      ERROR=$(echo "$RESPONSE" | grep -oE '"error":"[^"]+"' | cut -d'"' -f4)
+      echo -e "${RED}Error: ${ERROR:-Failed to delete submissions}${NC}"
+      exit 1
+    fi
+    exit 0
+  fi
+
+  # List forms
+  RESPONSE=$(curl -s -X GET "$WORKER_URL/forms" \
+    -H "X-Machine-ID: $MACHINE_ID" \
+    -H "X-API-Key: $API_KEY" \
+    -H "X-Project-Name: $PROJECT_NAME")
+
+  if ! echo "$RESPONSE" | grep -q '"success":true'; then
+    ERROR=$(echo "$RESPONSE" | grep -oE '"error":"[^"]+"' | cut -d'"' -f4)
+    echo -e "${RED}Error: ${ERROR:-Failed to list submissions}${NC}"
+    exit 1
+  fi
+
+  COUNT=$(echo "$RESPONSE" | grep -oE '"count":[0-9]+' | cut -d':' -f2)
+
+  # Handle count only
+  if [[ "$FORMS_COUNT" == true ]]; then
+    echo "$COUNT"
+    exit 0
+  fi
+
+  # Handle JSON output
+  if [[ "$FORMS_FORMAT" == "json" ]]; then
+    echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps(d.get('submissions',[]),indent=2))" 2>/dev/null || echo "$RESPONSE"
+    exit 0
+  fi
+
+  # Handle CSV output
+  if [[ "$FORMS_FORMAT" == "csv" ]]; then
+    echo "$RESPONSE" | python3 -c "
+import sys, json, csv
+
+data = json.load(sys.stdin)
+submissions = data.get('submissions', [])
+
+if not submissions:
+    sys.exit(0)
+
+# Collect all unique data field keys
+all_keys = set()
+for s in submissions:
+    all_keys.update(s.get('data', {}).keys())
+all_keys = sorted(all_keys)
+
+# Write CSV
+writer = csv.writer(sys.stdout)
+writer.writerow(['_submitted'] + list(all_keys))
+
+for s in submissions:
+    row = [s.get('_meta', {}).get('submitted', '')]
+    for key in all_keys:
+        row.append(s.get('data', {}).get(key, ''))
+    writer.writerow(row)
+" 2>/dev/null
+    exit 0
+  fi
+
+  # Default: human readable output
+  echo ""
+  echo -e "${GREEN}Submissions for $PROJECT_NAME ($COUNT total):${NC}"
+  echo ""
+
+  if [[ "$COUNT" == "0" ]]; then
+    echo -e "  ${BLUE}No submissions yet.${NC}"
+    echo ""
+    exit 0
+  fi
+
+  # Parse and display submissions
+  echo "$RESPONSE" | python3 -c "
+import sys, json
+
+data = json.load(sys.stdin)
+submissions = data.get('submissions', [])
+
+for i, s in enumerate(submissions, 1):
+    meta = s.get('_meta', {})
+    submitted = meta.get('submitted', 'Unknown')
+    print(f'#{i} - {submitted}')
+    for key, value in s.get('data', {}).items():
+        print(f'  {key}: {value}')
+    print()
+" 2>/dev/null
+
   exit 0
 fi
 
