@@ -135,14 +135,27 @@ share-site forms -n my-project --clear
 ### Manage Your Sites
 
 ```bash
-# List your projects
+# List your projects (shows custom domains)
 share-site -l
+
+# Example output:
+# Projects for alice:
+#   • my-site
+#     https://alice-my-site.pages.dev
+#   • docs
+#     https://docs.example.com (custom domain)
 
 # Delete a project
 share-site -D -n my-project
 
 # Check who you're logged in as
 share-site me
+
+# Example output:
+# Logged in as: alice
+# API: https://share-site-api.example.workers.dev
+# Domain: alice-{project}.pages.dev
+# Created: 2024-01-15T10:30:00.000Z
 
 # Show your API key (for CI/CD)
 share-site key
