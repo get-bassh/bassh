@@ -1,6 +1,216 @@
 // share-site-worker: Multi-tenant deployment backend for Cloudflare Pages
 // Deploy this worker once, then anyone with the CLI can deploy sites to your account
 
+// PageCrypt-style encryption: AES-256-GCM with PBKDF2 key derivation
+async function encryptHTML(htmlContent, password) {
+  const encoder = new TextEncoder();
+
+  // Generate random salt (32 bytes) and IV (16 bytes)
+  const salt = crypto.getRandomValues(new Uint8Array(32));
+  const iv = crypto.getRandomValues(new Uint8Array(16));
+
+  // Derive key using PBKDF2 (100,000 iterations, SHA-256)
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(password),
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+
+  const key = await crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: salt,
+      iterations: 100000,
+      hash: 'SHA-256'
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt']
+  );
+
+  // Encrypt the HTML content
+  const encrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: iv },
+    key,
+    encoder.encode(htmlContent)
+  );
+
+  // Combine: salt (32) + iv (16) + ciphertext
+  const combined = new Uint8Array(salt.length + iv.length + encrypted.byteLength);
+  combined.set(salt, 0);
+  combined.set(iv, salt.length);
+  combined.set(new Uint8Array(encrypted), salt.length + iv.length);
+
+  // Return as base64
+  return btoa(String.fromCharCode(...combined));
+}
+
+function getDecryptTemplate(encryptedData) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Protected Page</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      background: white;
+      padding: 2.5rem;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.1);
+      max-width: 360px;
+      width: 90%;
+    }
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #1a1a1a;
+      margin-bottom: 0.5rem;
+    }
+    p {
+      color: #666;
+      font-size: 0.875rem;
+      margin-bottom: 1.5rem;
+    }
+    input {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 1rem;
+      margin-bottom: 1rem;
+      transition: border-color 0.2s;
+    }
+    input:focus {
+      outline: none;
+      border-color: #0066ff;
+    }
+    button {
+      width: 100%;
+      padding: 0.75rem;
+      background: #0066ff;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #0052cc; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    .error {
+      color: #dc3545;
+      font-size: 0.875rem;
+      margin-top: 1rem;
+      display: none;
+    }
+    .icon {
+      width: 48px;
+      height: 48px;
+      background: #f0f0f0;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1rem;
+    }
+    .icon svg { width: 24px; height: 24px; color: #666; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+      </svg>
+    </div>
+    <h1>Protected Page</h1>
+    <p>Enter the password to view this content.</p>
+    <form id="form">
+      <input type="password" id="password" placeholder="Password" autofocus required>
+      <button type="submit" id="btn">Unlock</button>
+    </form>
+    <p class="error" id="error">Incorrect password. Please try again.</p>
+  </div>
+
+  <script>
+    const ENCRYPTED = "${encryptedData}";
+
+    async function decrypt(password) {
+      try {
+        const data = Uint8Array.from(atob(ENCRYPTED), c => c.charCodeAt(0));
+        const salt = data.slice(0, 32);
+        const iv = data.slice(32, 48);
+        const ciphertext = data.slice(48);
+
+        const keyMaterial = await crypto.subtle.importKey(
+          'raw',
+          new TextEncoder().encode(password),
+          'PBKDF2',
+          false,
+          ['deriveKey']
+        );
+
+        const key = await crypto.subtle.deriveKey(
+          { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+          keyMaterial,
+          { name: 'AES-GCM', length: 256 },
+          false,
+          ['decrypt']
+        );
+
+        const decrypted = await crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv },
+          key,
+          ciphertext
+        );
+
+        return new TextDecoder().decode(decrypted);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    document.getElementById('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btn');
+      const error = document.getElementById('error');
+      const password = document.getElementById('password').value;
+
+      btn.disabled = true;
+      btn.textContent = 'Decrypting...';
+      error.style.display = 'none';
+
+      const html = await decrypt(password);
+
+      if (html) {
+        document.open();
+        document.write(html);
+        document.close();
+      } else {
+        error.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Unlock';
+      }
+    });
+  </script>
+</body>
+</html>`;
+}
+
 export default {
   async fetch(request, env) {
     const corsHeaders = {
@@ -76,10 +286,27 @@ export default {
 
       for (const file of files) {
         const path = file.path.startsWith('/') ? file.path : '/' + file.path;
-        const content = file.content; // Already base64
+        let content = file.content; // Already base64
+        let finalContent;
+
+        // If password provided and this is an HTML file, encrypt it
+        if (password && path.endsWith('.html')) {
+          // Decode original HTML
+          const binaryString = atob(content);
+          const originalHTML = binaryString;
+
+          // Encrypt and wrap in decrypt template
+          const encryptedData = await encryptHTML(originalHTML, password);
+          const protectedHTML = getDecryptTemplate(encryptedData);
+
+          // Encode back to base64
+          finalContent = btoa(protectedHTML);
+        } else {
+          finalContent = content;
+        }
 
         // Decode to get raw bytes for hashing
-        const binaryString = atob(content);
+        const binaryString = atob(finalContent);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
           bytes[i] = binaryString.charCodeAt(i);
@@ -98,7 +325,7 @@ export default {
 
         uploadPayload.push({
           key: hash,
-          value: content,
+          value: finalContent,
           metadata: { contentType },
           base64: true
         });

@@ -61,7 +61,7 @@ while [[ $# -gt 0 ]]; do
       echo "Usage: share-site [directory] [options]"
       echo ""
       echo "Options:"
-      echo "  -p, --password <pass>     Add simple JS password protection"
+      echo "  -p, --password <pass>     Add AES-256-GCM encrypted password protection"
       echo "  -e, --emails <list>       Restrict to specific emails (comma-separated)"
       echo "  -d, --domain <domain>     Allow all emails from domain (e.g., @company.com)"
       echo "  -n, --name <name>         Project name (auto-generated if not provided)"
@@ -187,21 +187,9 @@ if [[ ! -f "$DEPLOY_DIR/index.html" ]]; then
   fi
 fi
 
-# Add password protection if requested (inject into HTML files)
+# Password protection is now handled server-side with AES-256-GCM encryption
 if [[ -n "$PASSWORD" ]]; then
-  echo -e "${BLUE}Adding password protection...${NC}"
-
-  find "$DEPLOY_DIR" -name "*.html" | while read -r file; do
-    PASSWORD_SCRIPT="<script>(function(){var p=prompt('Enter password:');if(p!=='$PASSWORD'){document.body.innerHTML='<h1 style=\"font-family:sans-serif;text-align:center;margin-top:100px\">Access Denied</h1>';throw new Error('denied');}})();</script>"
-
-    if grep -q "<head>" "$file" 2>/dev/null; then
-      sed -i.bak "s|<head>|<head>$PASSWORD_SCRIPT|" "$file" && rm -f "$file.bak"
-    elif grep -q "<body>" "$file" 2>/dev/null; then
-      sed -i.bak "s|<body>|<body>$PASSWORD_SCRIPT|" "$file" && rm -f "$file.bak"
-    else
-      echo "$PASSWORD_SCRIPT$(cat "$file")" > "$file"
-    fi
-  done
+  echo -e "${BLUE}Password protection enabled (AES-256-GCM encryption)${NC}"
 fi
 
 # Build JSON payload with files
