@@ -136,7 +136,7 @@ if [[ "$REGISTER_MODE" == true ]]; then
     REGISTRATION_CODE="$SHARE_SITE_REGISTRATION_CODE"
   else
     echo -e "${YELLOW}Enter registration code (or press Enter if not required):${NC}"
-    read -r REGISTRATION_CODE
+    read -r REGISTRATION_CODE < /dev/tty
   fi
 
   RESPONSE=$(curl -s -X POST "$WORKER_URL/register" \
