@@ -44,8 +44,14 @@ async function encryptHTML(htmlContent, password) {
   combined.set(iv, salt.length);
   combined.set(new Uint8Array(encrypted), salt.length + iv.length);
 
-  // Return as base64
-  return btoa(String.fromCharCode(...combined));
+  // Return as base64 (chunk to avoid stack overflow)
+  let binary = '';
+  const chunkSize = 8192;
+  for (let i = 0; i < combined.length; i += chunkSize) {
+    const chunk = combined.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, chunk);
+  }
+  return btoa(binary);
 }
 
 function getDecryptTemplate(encryptedData) {
