@@ -141,7 +141,12 @@ if [[ "$REGISTER_MODE" == true ]]; then
 
   RESPONSE=$(curl -s -X POST "$WORKER_URL/register" \
     -H "Content-Type: application/json" \
-    -d "{\"username\": \"$REGISTER_USERNAME\", \"registrationCode\": \"$REGISTRATION_CODE\"}")
+    -d "{\"username\": \"$REGISTER_USERNAME\", \"registrationCode\": \"$REGISTRATION_CODE\"}") || true
+
+  if [[ -z "$RESPONSE" ]]; then
+    echo -e "${RED}Error: No response from server${NC}"
+    exit 1
+  fi
 
   if echo "$RESPONSE" | grep -q '"success":true'; then
     API_KEY=$(echo "$RESPONSE" | grep -oE '"key":"[^"]+"' | cut -d'"' -f4)
