@@ -344,6 +344,7 @@ if [[ "$ME_MODE" == true ]]; then
     echo ""
     echo -e "${GREEN}Logged in as:${NC} $USERNAME"
     echo -e "${BLUE}API:${NC} $WORKER_URL"
+    echo -e "${BLUE}Domain:${NC} ${USERNAME}-{project}.pages.dev"
     echo -e "${BLUE}Created:${NC} $CREATED"
     echo ""
   else

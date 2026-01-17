@@ -233,15 +233,33 @@ If the user wants to collect form submissions from their deployed site, you can 
 
 ### Adding a Form
 
-Get the API URL first:
+First, get the user's info:
 ```bash
 share-site me
 ```
-The output shows `API: https://share-site-api.yourname.workers.dev`
 
-Add a form to the HTML that posts to `/form/PROJECT_NAME`:
+Output shows:
+```
+Logged in as: username
+API: https://share-site-api.yourname.workers.dev
+Domain: username-{project}.pages.dev
+```
+
+Use this info to construct the form:
+
+**Form action URL:** `{API}/form/{PROJECT_NAME}`
+
+**Redirect URL after submission:**
+- If custom domain used: `https://{custom-domain}/thanks.html`
+- If no custom domain: `https://{username}-{project}.pages.dev/thanks.html`
+
+### Example Form HTML
+
 ```html
 <form action="https://share-site-api.yourname.workers.dev/form/my-project" method="POST">
+  <input type="hidden" name="_redirect" value="https://username-my-project.pages.dev/thanks.html">
+  <input type="hidden" name="_honeypot" value="" style="display:none">
+
   <input type="text" name="name" required>
   <input type="email" name="email" required>
   <textarea name="message"></textarea>
@@ -249,9 +267,28 @@ Add a form to the HTML that posts to `/form/PROJECT_NAME`:
 </form>
 ```
 
-Optional hidden fields:
-- `_redirect` - URL to redirect after submission
-- `_honeypot` - spam protection (should be empty, hide with CSS)
+**With custom domain:**
+```html
+<form action="https://share-site-api.yourname.workers.dev/form/my-project" method="POST">
+  <input type="hidden" name="_redirect" value="https://docs.example.com/thanks.html">
+  ...
+</form>
+```
+
+### Creating a Thank You Page
+
+When deploying a site with a form, include a `thanks.html` file:
+```html
+<!DOCTYPE html>
+<html>
+<head><title>Thank You</title></head>
+<body>
+  <h1>Thank you!</h1>
+  <p>Your submission has been received.</p>
+  <a href="/">Back to home</a>
+</body>
+</html>
+```
 
 ### Viewing Submissions
 
