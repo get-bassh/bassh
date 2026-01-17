@@ -34,6 +34,7 @@ KEY_MODE=false
 KEY_REGENERATE=false
 UNINSTALL_MODE=false
 REGISTER_USERNAME=""
+INVITE_CODE=""
 
 # Machine ID for one-account-per-computer enforcement
 CONFIG_DIR="$HOME/.share-site"
@@ -78,12 +79,25 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     register)
       REGISTER_MODE=true
-      REGISTER_USERNAME="${2:-}"
-      if [[ -n "$2" ]]; then
-        shift 2
-      else
-        shift 1
-      fi
+      shift
+      # Parse register arguments
+      while [[ $# -gt 0 ]]; do
+        case $1 in
+          --invite|-i)
+            INVITE_CODE="$2"
+            shift 2
+            ;;
+          -*)
+            echo -e "${RED}Unknown option: $1${NC}"
+            exit 1
+            ;;
+          *)
+            REGISTER_USERNAME="$1"
+            shift
+            ;;
+        esac
+      done
+      break
       ;;
     me)
       ME_MODE=true
@@ -132,13 +146,16 @@ while [[ $# -gt 0 ]]; do
       echo "Usage: share-site [command] [directory] [options]"
       echo ""
       echo "Commands:"
-      echo "  register <username>       Create an account and get API key"
+      echo "  register <username>       Create an account (with invite code or manual setup)"
       echo "  me                        Show current user info"
       echo "  key                       Show your API key"
       echo "  key --regenerate          Generate a new API key (invalidates old)"
       echo "  uninstall                 Delete account, all sites, and remove CLI"
       echo ""
-      echo "Options:"
+      echo "Registration Options:"
+      echo "  -i, --invite <code>       Use invite code (format: subdomain:secret)"
+      echo ""
+      echo "Deploy Options:"
       echo "  -p, --password <pass>     Add AES-256-GCM encrypted password protection"
       echo "  -e, --emails <list>       Restrict to specific emails (comma-separated)"
       echo "  -d, --domain <domain>     Allow all emails from domain (e.g., @company.com)"
@@ -147,9 +164,15 @@ while [[ $# -gt 0 ]]; do
       echo "  -D, --delete              Delete a project (requires -n)"
       echo "  -h, --help                Show this help"
       echo ""
-      echo "Examples:"
-      echo "  share-site register alice           # Create account, get API key"
-      echo "  share-site me                       # Show your username"
+      echo "Registration:"
+      echo "  # With invite code (one code does everything)"
+      echo "  share-site register alice --invite bob-rietveld:secret123"
+      echo ""
+      echo "  # Without invite code (requires SHARE_SITE_API to be set)"
+      echo "  export SHARE_SITE_API=https://share-site-api.example.workers.dev"
+      echo "  share-site register alice"
+      echo ""
+      echo "Deploy Examples:"
       echo "  share-site                          # Deploy current directory"
       echo "  share-site ./my-site                # Deploy specific directory"
       echo "  share-site -p secret123             # With password"
@@ -157,13 +180,16 @@ while [[ $# -gt 0 ]]; do
       echo "  share-site -d \"@company.com\"        # Anyone @company.com can access"
       echo "  share-site -l                       # List your projects"
       echo "  share-site -D -n my-project         # Delete a project"
+      echo ""
+      echo "Other Commands:"
+      echo "  share-site me                       # Show your username"
       echo "  share-site key                      # Show your API key"
       echo "  share-site key --regenerate         # Get a new API key"
       echo "  share-site uninstall                # Remove account and all data"
       echo ""
       echo "Environment:"
-      echo "  SHARE_SITE_API    The deployment API URL"
-      echo "  SHARE_SITE_KEY    Your API key (from 'share-site register')"
+      echo "  SHARE_SITE_API    The deployment API URL (set automatically with invite code)"
+      echo "  SHARE_SITE_KEY    Your API key (saved automatically during registration)"
       exit 0
       ;;
     *)
@@ -173,38 +199,56 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Check worker URL is configured
-if [[ -z "$WORKER_URL" ]]; then
-  echo -e "${RED}Error: Worker URL not configured${NC}"
-  echo ""
-  echo "Set your worker URL:"
-  echo "  export SHARE_SITE_API=https://your-worker.workers.dev"
-  echo ""
-  echo "Add to ~/.zshrc or ~/.bashrc to make permanent."
-  exit 1
-fi
-
-# Handle register mode
+# Handle register mode (before URL check since invite code provides URL)
 if [[ "$REGISTER_MODE" == true ]]; then
   if [[ -z "$REGISTER_USERNAME" ]]; then
     echo -e "${RED}Error: Username required${NC}"
-    echo "Usage: share-site register <username>"
+    echo "Usage: share-site register <username> [--invite <code>]"
+    echo ""
+    echo "Examples:"
+    echo "  share-site register alice --invite bob-rietveld:secret123"
+    echo "  share-site register alice  # If SHARE_SITE_API is already set"
     exit 1
   fi
 
-  echo -e "${BLUE}Registering user: $REGISTER_USERNAME${NC}"
+  # Parse invite code if provided (format: subdomain:registrationcode)
+  if [[ -n "$INVITE_CODE" ]]; then
+    if [[ "$INVITE_CODE" != *":"* ]]; then
+      echo -e "${RED}Error: Invalid invite code format${NC}"
+      echo "Expected format: subdomain:code (e.g., bob-rietveld:secret123)"
+      exit 1
+    fi
+    INVITE_SUBDOMAIN="${INVITE_CODE%%:*}"
+    REGISTRATION_CODE="${INVITE_CODE#*:}"
+    WORKER_URL="https://share-site-api.${INVITE_SUBDOMAIN}.workers.dev"
+  fi
+
+  # Check worker URL is configured
+  if [[ -z "$WORKER_URL" ]]; then
+    echo -e "${RED}Error: Worker URL not configured${NC}"
+    echo ""
+    echo "Either use an invite code:"
+    echo "  share-site register <username> --invite <subdomain:code>"
+    echo ""
+    echo "Or set your worker URL:"
+    echo "  export SHARE_SITE_API=https://your-worker.workers.dev"
+    exit 1
+  fi
 
   # Get machine ID for one-account-per-computer
   MACHINE_ID=$(get_machine_id)
 
-  # Check for registration code
-  REGISTRATION_CODE=""
-  if [[ -n "$SHARE_SITE_REGISTRATION_CODE" ]]; then
-    REGISTRATION_CODE="$SHARE_SITE_REGISTRATION_CODE"
-  else
-    echo -n -e "${YELLOW}Enter registration code (or press Enter if not required): ${NC}"
-    read -r REGISTRATION_CODE
+  # Check for registration code (if not from invite code)
+  if [[ -z "$REGISTRATION_CODE" ]]; then
+    if [[ -n "$SHARE_SITE_REGISTRATION_CODE" ]]; then
+      REGISTRATION_CODE="$SHARE_SITE_REGISTRATION_CODE"
+    else
+      echo -n -e "${YELLOW}Registration code (press Enter if none): ${NC}"
+      read -r REGISTRATION_CODE
+    fi
   fi
+
+  echo -e "${BLUE}Registering...${NC}"
 
   RESPONSE=$(curl -s -X POST "$WORKER_URL/register" \
     -H "Content-Type: application/json" \
@@ -217,14 +261,6 @@ if [[ "$REGISTER_MODE" == true ]]; then
 
   if echo "$RESPONSE" | grep -q '"success":true'; then
     API_KEY=$(echo "$RESPONSE" | grep -oE '"key":"[^"]+"' | cut -d'"' -f4)
-    echo ""
-    echo -e "${GREEN}════════════════════════════════════════${NC}"
-    echo -e "${GREEN}✓ Registration successful!${NC}"
-    echo -e "${GREEN}════════════════════════════════════════${NC}"
-    echo ""
-    echo -e "  ${BLUE}Username:${NC} $REGISTER_USERNAME"
-    echo -e "  ${BLUE}API Key:${NC}  $API_KEY"
-    echo ""
 
     # Determine shell config file
     if [[ -f "$HOME/.zshrc" ]]; then
@@ -233,23 +269,24 @@ if [[ "$REGISTER_MODE" == true ]]; then
       SHELL_RC="$HOME/.bashrc"
     fi
 
-    # Offer to save automatically
-    echo -n -e "${YELLOW}Save API key to $SHELL_RC? (Y/n): ${NC}"
-    read -r SAVE_KEY
-    if [[ "$SAVE_KEY" != "n" && "$SAVE_KEY" != "N" ]]; then
-      # Remove old key if exists
-      sed -i '' '/SHARE_SITE_KEY/d' "$SHELL_RC" 2>/dev/null || sed -i '/SHARE_SITE_KEY/d' "$SHELL_RC"
-      echo "export SHARE_SITE_KEY=\"$API_KEY\"" >> "$SHELL_RC"
-      echo -e "${GREEN}✓ API key saved to $SHELL_RC${NC}"
-      echo ""
-      echo -e "Run: ${CYAN}source $SHELL_RC${NC}"
-    else
-      echo ""
-      echo -e "${YELLOW}Save your API key! It cannot be recovered.${NC}"
-      echo ""
-      echo "Add to your shell config:"
-      echo -e "  ${CYAN}export SHARE_SITE_KEY=$API_KEY${NC}"
+    # Auto-save configuration
+    sed -i '' '/SHARE_SITE_KEY/d' "$SHELL_RC" 2>/dev/null || sed -i '/SHARE_SITE_KEY/d' "$SHELL_RC"
+    echo "export SHARE_SITE_KEY=\"$API_KEY\"" >> "$SHELL_RC"
+
+    # Also save URL if using invite code
+    if [[ -n "$INVITE_CODE" ]]; then
+      sed -i '' '/SHARE_SITE_API/d' "$SHELL_RC" 2>/dev/null || sed -i '/SHARE_SITE_API/d' "$SHELL_RC"
+      echo "export SHARE_SITE_API=\"$WORKER_URL\"" >> "$SHELL_RC"
     fi
+
+    echo ""
+    echo -e "${GREEN}✓ Registered as ${REGISTER_USERNAME}${NC}"
+    echo ""
+    echo -e "  Configuration saved to ${CYAN}$SHELL_RC${NC}"
+    echo ""
+    echo -e "  ${BLUE}Ready to deploy:${NC}"
+    echo -e "    source $SHELL_RC"
+    echo -e "    share-site ./my-folder"
     echo ""
   else
     ERROR=$(echo "$RESPONSE" | grep -oE '"error":"[^"]+"' | cut -d'"' -f4)
