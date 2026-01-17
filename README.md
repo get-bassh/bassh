@@ -190,6 +190,32 @@ All on Cloudflare free tier:
 
 **$0/month** for small teams.
 
+## Claude Code Skill
+
+Deploy HTML artifacts directly from Claude Code conversations.
+
+> **Note:** Only works with Claude Code (CLI), not Claude.ai web.
+
+### Install Skill
+
+```bash
+mkdir -p ~/.claude/skills
+curl -fsSL https://raw.githubusercontent.com/bob-rietveld/share-site/main/skill/deploy-artifact.md \
+  -o ~/.claude/skills/deploy-artifact.md
+```
+
+### Usage
+
+In Claude Code:
+```
+Deploy this HTML with password "demo123":
+<html><body><h1>Hello</h1></body></html>
+```
+
+Claude handles setup, deployment, and returns the protected URL.
+
+See [skill/README.md](skill/README.md) for details.
+
 ## License
 
 MIT
