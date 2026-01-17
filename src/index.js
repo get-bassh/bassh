@@ -78,7 +78,10 @@ function getDecryptTemplate(encryptedData) {
       box-shadow: 0 4px 24px rgba(0,0,0,0.1);
       max-width: 360px;
       width: 90%;
+      opacity: 0;
+      transition: opacity 0.2s;
     }
+    .container.visible { opacity: 1; }
     h1 {
       font-size: 1.25rem;
       font-weight: 600;
@@ -154,6 +157,7 @@ function getDecryptTemplate(encryptedData) {
 
   <script>
     const ENCRYPTED = "${encryptedData}";
+    const STORAGE_KEY = 'share-site-pw';
 
     async function decrypt(password) {
       try {
@@ -190,28 +194,44 @@ function getDecryptTemplate(encryptedData) {
       }
     }
 
-    document.getElementById('form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const btn = document.getElementById('btn');
-      const error = document.getElementById('error');
-      const password = document.getElementById('password').value;
-
-      btn.disabled = true;
-      btn.textContent = 'Decrypting...';
-      error.style.display = 'none';
-
+    async function tryDecrypt(password, saveOnSuccess) {
       const html = await decrypt(password);
-
       if (html) {
+        if (saveOnSuccess) {
+          sessionStorage.setItem(STORAGE_KEY, password);
+        }
         document.open();
         document.write(html);
         document.close();
-      } else {
-        error.style.display = 'block';
-        btn.disabled = false;
-        btn.textContent = 'Unlock';
+        return true;
       }
-    });
+      return false;
+    }
+
+    // Try stored password first (auto-unlock for same session)
+    (async () => {
+      const stored = sessionStorage.getItem(STORAGE_KEY);
+      if (stored && await tryDecrypt(stored, false)) return;
+
+      // Show form if no stored password or it failed
+      document.querySelector('.container').classList.add('visible');
+      document.getElementById('form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('btn');
+        const error = document.getElementById('error');
+        const password = document.getElementById('password').value;
+
+        btn.disabled = true;
+        btn.textContent = 'Decrypting...';
+        error.style.display = 'none';
+
+        if (!await tryDecrypt(password, true)) {
+          error.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = 'Unlock';
+        }
+      });
+    })();
   </script>
 </body>
 </html>`;
