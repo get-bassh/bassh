@@ -1,9 +1,9 @@
-# share-site deployment workflow (advanced)
+# bassh deployment workflow (advanced)
 # Copy this file to your repo: .github/workflows/deploy.yml
 #
 # Required GitHub Secrets:
-#   SHARE_SITE_API  - Your share-site worker URL
-#   SHARE_SITE_KEY  - Your API key (get with: share-site key)
+#   BASSH_API  - Your bassh worker URL
+#   BASSH_KEY  - Your API key (get with: bassh key)
 #
 # Optional GitHub Secrets:
 #   SITE_PASSWORD   - Password protection for the site
@@ -74,15 +74,15 @@ jobs:
           name: build
           path: ./deploy
 
-      - name: Install share-site CLI
+      - name: Install bassh CLI
         run: |
-          curl -fsSL https://raw.githubusercontent.com/bob-rietveld/share-site/main/install.sh | bash
+          curl -fsSL https://raw.githubusercontent.com/get-bassh/bassh/main/install.sh | bash
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Deploy to share-site
+      - name: Deploy to bassh
         env:
-          SHARE_SITE_API: ${{ secrets.SHARE_SITE_API }}
-          SHARE_SITE_KEY: ${{ secrets.SHARE_SITE_KEY }}
+          BASSH_API: ${{ secrets.BASSH_API }}
+          BASSH_KEY: ${{ secrets.BASSH_KEY }}
         run: |
           ARGS="./deploy -n ${{ env.PROJECT_NAME }}"
 
@@ -96,7 +96,7 @@ jobs:
             ARGS="$ARGS --custom-domain ${{ secrets.CUSTOM_DOMAIN }}"
           fi
 
-          share-site $ARGS
+          bassh $ARGS
 
   deploy-preview:
     needs: build
@@ -110,19 +110,19 @@ jobs:
           name: build
           path: ./deploy
 
-      - name: Install share-site CLI
+      - name: Install bassh CLI
         run: |
-          curl -fsSL https://raw.githubusercontent.com/bob-rietveld/share-site/main/install.sh | bash
+          curl -fsSL https://raw.githubusercontent.com/get-bassh/bassh/main/install.sh | bash
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Deploy preview
         id: preview
         env:
-          SHARE_SITE_API: ${{ secrets.SHARE_SITE_API }}
-          SHARE_SITE_KEY: ${{ secrets.SHARE_SITE_KEY }}
+          BASSH_API: ${{ secrets.BASSH_API }}
+          BASSH_KEY: ${{ secrets.BASSH_KEY }}
         run: |
           PREVIEW_NAME="${{ env.PROJECT_NAME }}-pr-${{ github.event.number }}"
-          share-site ./deploy -n "$PREVIEW_NAME"
+          bassh ./deploy -n "$PREVIEW_NAME"
           echo "preview_name=$PREVIEW_NAME" >> $GITHUB_OUTPUT
 
       - name: Comment PR with preview URL

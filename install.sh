@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# share-site installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/bob-rietveld/share-site/main/install.sh | bash
+# bassh installer
+# Usage: curl -fsSL https://raw.githubusercontent.com/get-bassh/bassh/main/install.sh | bash
 
 set -e
 
@@ -13,10 +13,10 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-REPO="bob-rietveld/share-site"
-SCRIPT_NAME="share-site"
+REPO="get-bassh/bassh"
+SCRIPT_NAME="bassh"
 
-echo -e "${BLUE}Installing share-site...${NC}"
+echo -e "${BLUE}Installing bassh...${NC}"
 echo ""
 
 # Determine install location
@@ -60,35 +60,35 @@ if [[ -n "$CI" || -n "$GITHUB_ACTIONS" || ! -t 0 ]]; then
   echo -e "${GREEN}✓ Installation complete!${NC}"
   echo ""
   echo -e "Set these environment variables to deploy:"
-  echo -e "  ${CYAN}SHARE_SITE_API${NC} - Your worker URL"
-  echo -e "  ${CYAN}SHARE_SITE_KEY${NC} - Your API key"
+  echo -e "  ${CYAN}BASSH_API${NC} - Your worker URL"
+  echo -e "  ${CYAN}BASSH_KEY${NC} - Your API key"
   exit 0
 fi
 
 # Interactive setup for local installs
-# Check if SHARE_SITE_API is already set
-if ! grep -q "SHARE_SITE_API" "$SHELL_RC" 2>/dev/null; then
-  echo -e "${YELLOW}Enter your share-site worker URL${NC}"
-  echo -e "${BLUE}(e.g., https://share-site-api.yourname.workers.dev)${NC}"
+# Check if BASSH_API is already set
+if ! grep -q "BASSH_API" "$SHELL_RC" 2>/dev/null; then
+  echo -e "${YELLOW}Enter your bassh worker URL${NC}"
+  echo -e "${BLUE}(e.g., https://bassh-api.yourname.workers.dev)${NC}"
   echo ""
   echo -n "Worker URL: "
   read WORKER_URL < /dev/tty
 
   if [[ -n "$WORKER_URL" ]]; then
     echo "" >> "$SHELL_RC"
-    echo "# share-site configuration" >> "$SHELL_RC"
-    echo "export SHARE_SITE_API=\"$WORKER_URL\"" >> "$SHELL_RC"
-    echo -e "${GREEN}✓ Added SHARE_SITE_API to $SHELL_RC${NC}"
+    echo "# bassh configuration" >> "$SHELL_RC"
+    echo "export BASSH_API=\"$WORKER_URL\"" >> "$SHELL_RC"
+    echo -e "${GREEN}✓ Added BASSH_API to $SHELL_RC${NC}"
   else
     echo -e "${YELLOW}Skipped. Set it later with:${NC}"
-    echo "  export SHARE_SITE_API=https://your-worker.workers.dev"
+    echo "  export BASSH_API=https://your-worker.workers.dev"
   fi
 else
-  echo -e "${BLUE}SHARE_SITE_API already configured in $SHELL_RC${NC}"
+  echo -e "${BLUE}BASSH_API already configured in $SHELL_RC${NC}"
 fi
 
-# Check if SHARE_SITE_KEY is already set
-if ! grep -q "SHARE_SITE_KEY" "$SHELL_RC" 2>/dev/null; then
+# Check if BASSH_KEY is already set
+if ! grep -q "BASSH_KEY" "$SHELL_RC" 2>/dev/null; then
   echo ""
   echo -e "${YELLOW}Do you have an API key? (y/n)${NC}"
   echo -n "> "
@@ -100,17 +100,17 @@ if ! grep -q "SHARE_SITE_KEY" "$SHELL_RC" 2>/dev/null; then
     read API_KEY < /dev/tty
 
     if [[ -n "$API_KEY" ]]; then
-      echo "export SHARE_SITE_KEY=\"$API_KEY\"" >> "$SHELL_RC"
-      echo -e "${GREEN}✓ Added SHARE_SITE_KEY to $SHELL_RC${NC}"
+      echo "export BASSH_KEY=\"$API_KEY\"" >> "$SHELL_RC"
+      echo -e "${GREEN}✓ Added BASSH_KEY to $SHELL_RC${NC}"
     fi
   else
     echo ""
     echo -e "${CYAN}You can register for an API key after installation:${NC}"
     echo "  source $SHELL_RC"
-    echo "  share-site register <your-username>"
+    echo "  bassh register <your-username>"
   fi
 else
-  echo -e "${BLUE}SHARE_SITE_KEY already configured in $SHELL_RC${NC}"
+  echo -e "${BLUE}BASSH_KEY already configured in $SHELL_RC${NC}"
 fi
 
 # Check if install dir is in PATH
@@ -128,8 +128,8 @@ echo ""
 echo -e "Run: ${BLUE}source $SHELL_RC${NC}"
 echo ""
 echo -e "Then register (if you haven't already):"
-echo -e "  ${CYAN}share-site register <username>${NC}"
+echo -e "  ${CYAN}bassh register <username>${NC}"
 echo ""
 echo -e "Or start deploying:"
-echo -e "  ${CYAN}share-site ./my-folder${NC}"
+echo -e "  ${CYAN}bassh ./my-folder${NC}"
 echo ""

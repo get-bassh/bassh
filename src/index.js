@@ -1,4 +1,4 @@
-// share-site-worker: Multi-tenant deployment backend for Cloudflare Pages
+// bassh-worker: Multi-tenant deployment backend for Cloudflare Pages
 // Deploy this worker once, then anyone with the CLI can deploy sites to your account
 
 import { EmailMessage } from "cloudflare:email";
@@ -94,7 +94,7 @@ async function handleRegister(request, env, corsHeaders) {
       const existingMachine = await getUserByMachineId(env, machineId);
       if (existingMachine) {
         return new Response(JSON.stringify({
-          error: `This computer already has an account: ${existingMachine.username}. Use 'share-site me' to check your current account.`
+          error: `This computer already has an account: ${existingMachine.username}. Use 'bassh me' to check your current account.`
         }), {
           status: 409,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -159,7 +159,7 @@ async function handleMe(request, env, corsHeaders) {
   let inviteCode = null;
   if (env.REGISTRATION_CODE) {
     const url = new URL(request.url);
-    // Extract subdomain from hostname (e.g., "share-site-api.bob-rietveld.workers.dev" -> "bob-rietveld")
+    // Extract subdomain from hostname (e.g., "bassh-api.bob-rietveld.workers.dev" -> "bob-rietveld")
     const hostParts = url.hostname.split('.');
     if (hostParts.length >= 3 && hostParts.slice(-2).join('.') === 'workers.dev') {
       const subdomain = hostParts.slice(0, -2).join('.').replace(/^[^.]+\./, '');
@@ -397,7 +397,7 @@ function getDecryptTemplate(encryptedData) {
 
   <script>
     const ENCRYPTED = "${encryptedData}";
-    const STORAGE_KEY = 'share-site-pw';
+    const STORAGE_KEY = 'bassh-pw';
 
     async function decrypt(password) {
       try {
@@ -1016,7 +1016,7 @@ export default {
 
     if (!user) {
       return new Response(JSON.stringify({
-        error: 'Authentication required. Register this machine with "share-site register <username>" or provide X-API-Key header.'
+        error: 'Authentication required. Register this machine with "bassh register <username>" or provide X-API-Key header.'
       }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -1694,7 +1694,7 @@ async function handleUninstall(request, env, corsHeaders, username) {
 // Hash IP for privacy (we don't store raw IPs)
 async function hashIP(ip) {
   const encoder = new TextEncoder();
-  const data = encoder.encode(ip + 'share-site-salt');
+  const data = encoder.encode(ip + 'bassh-salt');
   const hash = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
 }

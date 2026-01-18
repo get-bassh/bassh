@@ -1,9 +1,9 @@
-# share-site
+# bassh
 
 Deploy static sites to Cloudflare Pages with one command. No Cloudflare account needed.
 
 There are two roles:
-- **Operator** - Runs the share-site infrastructure on Cloudflare
+- **Operator** - Runs the bassh infrastructure on Cloudflare
 - **User** - Deploys sites using an invite code from an operator
 
 ---
@@ -14,45 +14,45 @@ There are two roles:
 
 ```bash
 # Install
-curl -fsSL https://raw.githubusercontent.com/bob-rietveld/share-site/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/get-bassh/bassh/main/install.sh | bash
 source ~/.zshrc
 
 # Register (get invite code from your operator)
-share-site register myusername --invite subdomain:secret123
+bassh register myusername --invite subdomain:secret123
 
 # Deploy
-share-site ./my-folder
+bassh ./my-folder
 ```
 
 ### Deploy Options
 
 ```bash
 # Deploy current directory
-share-site
+bassh
 
 # Deploy specific folder
-share-site ./my-site
+bassh ./my-site
 
 # Custom project name
-share-site ./my-site -n my-project
+bassh ./my-site -n my-project
 
 # Password protected
-share-site ./my-site -p secret123
+bassh ./my-site -p secret123
 
 # Email magic link (visitors get link via email)
-share-site ./my-site -o "alice@gmail.com,bob@company.com"
+bassh ./my-site -o "alice@gmail.com,bob@company.com"
 
 # Email magic link for domain
-share-site ./my-site -o "@company.com"
+bassh ./my-site -o "@company.com"
 
 # Cloudflare Access email restriction
-share-site ./my-site -e "alice@gmail.com,bob@company.com"
+bassh ./my-site -e "alice@gmail.com,bob@company.com"
 
 # Cloudflare Access domain restriction
-share-site ./my-site -d "@company.com"
+bassh ./my-site -d "@company.com"
 
 # With custom domain
-share-site ./my-site --custom-domain docs.example.com
+bassh ./my-site --custom-domain docs.example.com
 ```
 
 ### Email Magic Links (Optional)
@@ -60,7 +60,7 @@ share-site ./my-site --custom-domain docs.example.com
 Protect your site with email verification. Visitors enter their email and receive a magic link to access.
 
 ```bash
-share-site ./my-site -o "alice@gmail.com,bob@company.com"
+bassh ./my-site -o "alice@gmail.com,bob@company.com"
 ```
 
 **How it works:**
@@ -71,7 +71,7 @@ share-site ./my-site -o "alice@gmail.com,bob@company.com"
 
 **Supports domains:**
 ```bash
-share-site ./my-site -o "@company.com"
+bassh ./my-site -o "@company.com"
 ```
 
 > **Operator requirement:** This feature requires Cloudflare Email Routing, which means the operator's domain must have its nameservers pointed to Cloudflare. If your operator hasn't enabled this, use `-p` (password) instead. See Operator Setup for details.
@@ -81,7 +81,7 @@ share-site ./my-site -o "@company.com"
 Attach your own domain to any deployed site:
 
 ```bash
-share-site ./my-site -n my-project --custom-domain docs.example.com
+bassh ./my-site -n my-project --custom-domain docs.example.com
 ```
 
 After deployment, the CLI shows DNS instructions:
@@ -114,7 +114,7 @@ Collect form data from your static sites. No backend needed.
 **1. Add a form to your HTML:**
 
 ```html
-<form action="https://share-site-api.yourname.workers.dev/form/my-project" method="POST">
+<form action="https://bassh-api.yourname.workers.dev/form/my-project" method="POST">
   <input type="text" name="name" placeholder="Name" required>
   <input type="email" name="email" placeholder="Email" required>
   <textarea name="message" placeholder="Message"></textarea>
@@ -122,25 +122,25 @@ Collect form data from your static sites. No backend needed.
 </form>
 ```
 
-Get your API URL with `share-site me`.
+Get your API URL with `bassh me`.
 
 **2. View submissions:**
 
 ```bash
 # List submissions (human-readable)
-share-site forms -n my-project
+bassh forms -n my-project
 
 # Export as CSV
-share-site forms -n my-project --csv > submissions.csv
+bassh forms -n my-project --csv > submissions.csv
 
 # Export as JSON
-share-site forms -n my-project --json
+bassh forms -n my-project --json
 
 # Count submissions
-share-site forms -n my-project --count
+bassh forms -n my-project --count
 
 # Clear all submissions
-share-site forms -n my-project --clear
+bassh forms -n my-project --clear
 ```
 
 **Optional features:**
@@ -163,7 +163,7 @@ share-site forms -n my-project --clear
 
 ```bash
 # List your projects (shows custom domains)
-share-site -l
+bassh -l
 
 # Example output:
 # Projects for alice:
@@ -173,22 +173,22 @@ share-site -l
 #     https://docs.example.com (custom domain)
 
 # Delete a project
-share-site -D -n my-project
+bassh -D -n my-project
 
 # Check who you're logged in as
-share-site me
+bassh me
 
 # Example output:
 # Logged in as: alice
-# API: https://share-site-api.example.workers.dev
+# API: https://bassh-api.example.workers.dev
 # Domain: alice-{project}.pages.dev
 # Created: 2024-01-15T10:30:00.000Z
 
 # Show your API key (for CI/CD)
-share-site key
+bassh key
 
 # Delete your account and all sites
-share-site uninstall
+bassh uninstall
 ```
 
 ### GitHub Actions (Auto-Deploy)
@@ -199,7 +199,7 @@ Deploy automatically when you push to GitHub.
 
 ```bash
 mkdir -p .github/workflows
-curl -fsSL https://raw.githubusercontent.com/bob-rietveld/share-site/main/examples/github-actions/deploy.yml \
+curl -fsSL https://raw.githubusercontent.com/get-bassh/bassh/main/examples/github-actions/deploy.yml \
   -o .github/workflows/deploy.yml
 ```
 
@@ -215,8 +215,8 @@ env:
 
 | Secret | Value |
 |--------|-------|
-| `SHARE_SITE_API` | Your worker URL (e.g., `https://share-site-api.bob-rietveld.workers.dev`) |
-| `SHARE_SITE_KEY` | Your API key (run `share-site key` to get it) |
+| `BASSH_API` | Your worker URL (e.g., `https://bassh-api.bob-rietveld.workers.dev`) |
+| `BASSH_KEY` | Your API key (run `bassh key` to get it) |
 
 **4. Push to deploy:**
 
@@ -231,12 +231,12 @@ See [examples/github-actions](examples/github-actions) for advanced workflows wi
 For other CI systems, set environment variables:
 
 ```bash
-export SHARE_SITE_API=https://share-site-api.example.workers.dev
-export SHARE_SITE_KEY=sk_your_api_key_here
-share-site ./dist -n my-project
+export BASSH_API=https://bassh-api.example.workers.dev
+export BASSH_KEY=sk_your_api_key_here
+bassh ./dist -n my-project
 ```
 
-Get your API key with `share-site key`.
+Get your API key with `bassh key`.
 
 ---
 
@@ -260,7 +260,7 @@ npx wrangler kv namespace create USERS
 #### 3. Configure wrangler.toml
 
 ```toml
-name = "share-site-api"
+name = "bassh-api"
 main = "src/index.js"
 compatibility_date = "2024-01-01"
 
@@ -317,7 +317,7 @@ npx wrangler secret put REGISTRATION_CODE
 # Enter a secret, e.g.: mysecret123
 ```
 
-Your invite code is `subdomain:secret`. For example, if deployed at `https://share-site-api.bob-rietveld.workers.dev` with secret `mysecret123`:
+Your invite code is `subdomain:secret`. For example, if deployed at `https://bassh-api.bob-rietveld.workers.dev` with secret `mysecret123`:
 
 ```
 bob-rietveld:mysecret123
@@ -330,14 +330,14 @@ Share this with your users.
 | Mode | Setup | Users Need |
 |------|-------|------------|
 | **Invite Code** | Set `REGISTRATION_CODE` | Just the invite code |
-| **Open** | No `REGISTRATION_CODE` | The `SHARE_SITE_API` URL |
+| **Open** | No `REGISTRATION_CODE` | The `BASSH_API` URL |
 
 ---
 
 ## How It Works
 
 ```
-share-site ./my-folder
+bassh ./my-folder
         |
         v
   +-----------------+
@@ -389,7 +389,7 @@ Deploy HTML artifacts directly from Claude Code conversations.
 
 ```bash
 mkdir -p ~/.claude/skills
-curl -fsSL https://raw.githubusercontent.com/bob-rietveld/share-site/main/skill/deploy-artifact.md \
+curl -fsSL https://raw.githubusercontent.com/get-bassh/bassh/main/skill/deploy-artifact.md \
   -o ~/.claude/skills/deploy-artifact.md
 ```
 

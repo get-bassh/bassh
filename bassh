@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# share-site: Deploy static sites via shared Cloudflare infrastructure
+# bassh: Deploy static sites via shared Cloudflare infrastructure
 # Users don't need their own Cloudflare account - deploys to your worker
 
 set -e
@@ -8,8 +8,8 @@ set -e
 # ============================================================
 # CONFIGURATION
 # ============================================================
-WORKER_URL="${SHARE_SITE_API:-}"
-API_KEY="${SHARE_SITE_KEY:-}"
+WORKER_URL="${BASSH_API:-}"
+API_KEY="${BASSH_KEY:-}"
 # ============================================================
 
 # Colors
@@ -43,7 +43,7 @@ FORMS_CLEAR=false
 FORMS_COUNT=false
 
 # Machine ID for one-account-per-computer enforcement
-CONFIG_DIR="$HOME/.share-site"
+CONFIG_DIR="$HOME/.bassh"
 MACHINE_ID_FILE="$CONFIG_DIR/machine-id"
 
 get_machine_id() {
@@ -170,9 +170,9 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --help|-h)
-      echo "share-site - Deploy a static site in one command"
+      echo "bassh - Deploy a static site in one command"
       echo ""
-      echo "Usage: share-site [command] [directory] [options]"
+      echo "Usage: bassh [command] [directory] [options]"
       echo ""
       echo "Commands:"
       echo "  register <username>       Create an account (with invite code or manual setup)"
@@ -198,40 +198,40 @@ while [[ $# -gt 0 ]]; do
       echo ""
       echo "Registration:"
       echo "  # With invite code (one code does everything)"
-      echo "  share-site register alice --invite bob-rietveld:secret123"
+      echo "  bassh register alice --invite bob-rietveld:secret123"
       echo ""
-      echo "  # Without invite code (requires SHARE_SITE_API to be set)"
-      echo "  export SHARE_SITE_API=https://share-site-api.example.workers.dev"
-      echo "  share-site register alice"
+      echo "  # Without invite code (requires BASSH_API to be set)"
+      echo "  export BASSH_API=https://bassh-api.example.workers.dev"
+      echo "  bassh register alice"
       echo ""
       echo "Deploy Examples:"
-      echo "  share-site                                      # Deploy current directory"
-      echo "  share-site ./my-site                            # Deploy specific directory"
-      echo "  share-site -p secret123                         # With password"
-      echo "  share-site -o \"a@x.com,b@y.com\"                 # Email magic link (via Resend)"
-      echo "  share-site -o \"@company.com\"                    # Anyone @company.com gets magic link"
-      echo "  share-site -e \"a@x.com,b@y.com\"                 # Cloudflare Access email restriction"
-      echo "  share-site -d \"@company.com\"                    # Cloudflare Access domain restriction"
-      echo "  share-site --custom-domain docs.example.com     # With custom domain"
-      echo "  share-site -l                                   # List your projects"
-      echo "  share-site -D -n my-project                     # Delete a project"
+      echo "  bassh                                      # Deploy current directory"
+      echo "  bassh ./my-site                            # Deploy specific directory"
+      echo "  bassh -p secret123                         # With password"
+      echo "  bassh -o \"a@x.com,b@y.com\"                 # Email magic link (via Resend)"
+      echo "  bassh -o \"@company.com\"                    # Anyone @company.com gets magic link"
+      echo "  bassh -e \"a@x.com,b@y.com\"                 # Cloudflare Access email restriction"
+      echo "  bassh -d \"@company.com\"                    # Cloudflare Access domain restriction"
+      echo "  bassh --custom-domain docs.example.com     # With custom domain"
+      echo "  bassh -l                                   # List your projects"
+      echo "  bassh -D -n my-project                     # Delete a project"
       echo ""
       echo "Other Commands:"
-      echo "  share-site me                       # Show your username and API URL"
-      echo "  share-site key                      # Show your API key"
-      echo "  share-site key --regenerate         # Get a new API key"
-      echo "  share-site uninstall                # Remove account and all data"
+      echo "  bassh me                       # Show your username and API URL"
+      echo "  bassh key                      # Show your API key"
+      echo "  bassh key --regenerate         # Get a new API key"
+      echo "  bassh uninstall                # Remove account and all data"
       echo ""
       echo "Form Submissions:"
-      echo "  share-site forms -n my-project      # View submissions"
-      echo "  share-site forms -n my-project --csv    # Export as CSV"
-      echo "  share-site forms -n my-project --json   # Export as JSON"
-      echo "  share-site forms -n my-project --count  # Show count only"
-      echo "  share-site forms -n my-project --clear  # Delete all submissions"
+      echo "  bassh forms -n my-project      # View submissions"
+      echo "  bassh forms -n my-project --csv    # Export as CSV"
+      echo "  bassh forms -n my-project --json   # Export as JSON"
+      echo "  bassh forms -n my-project --count  # Show count only"
+      echo "  bassh forms -n my-project --clear  # Delete all submissions"
       echo ""
       echo "Environment:"
-      echo "  SHARE_SITE_API    The deployment API URL (set automatically with invite code)"
-      echo "  SHARE_SITE_KEY    Your API key (saved automatically during registration)"
+      echo "  BASSH_API    The deployment API URL (set automatically with invite code)"
+      echo "  BASSH_KEY    Your API key (saved automatically during registration)"
       exit 0
       ;;
     *)
@@ -245,11 +245,11 @@ done
 if [[ "$REGISTER_MODE" == true ]]; then
   if [[ -z "$REGISTER_USERNAME" ]]; then
     echo -e "${RED}Error: Username required${NC}"
-    echo "Usage: share-site register <username> [--invite <code>]"
+    echo "Usage: bassh register <username> [--invite <code>]"
     echo ""
     echo "Examples:"
-    echo "  share-site register alice --invite bob-rietveld:secret123"
-    echo "  share-site register alice  # If SHARE_SITE_API is already set"
+    echo "  bassh register alice --invite bob-rietveld:secret123"
+    echo "  bassh register alice  # If BASSH_API is already set"
     exit 1
   fi
 
@@ -262,7 +262,7 @@ if [[ "$REGISTER_MODE" == true ]]; then
     fi
     INVITE_SUBDOMAIN="${INVITE_CODE%%:*}"
     REGISTRATION_CODE="${INVITE_CODE#*:}"
-    WORKER_URL="https://share-site-api.${INVITE_SUBDOMAIN}.workers.dev"
+    WORKER_URL="https://bassh-api.${INVITE_SUBDOMAIN}.workers.dev"
   fi
 
   # Check worker URL is configured
@@ -270,10 +270,10 @@ if [[ "$REGISTER_MODE" == true ]]; then
     echo -e "${RED}Error: Worker URL not configured${NC}"
     echo ""
     echo "Either use an invite code:"
-    echo "  share-site register <username> --invite <subdomain:code>"
+    echo "  bassh register <username> --invite <subdomain:code>"
     echo ""
     echo "Or set your worker URL:"
-    echo "  export SHARE_SITE_API=https://your-worker.workers.dev"
+    echo "  export BASSH_API=https://your-worker.workers.dev"
     exit 1
   fi
 
@@ -282,8 +282,8 @@ if [[ "$REGISTER_MODE" == true ]]; then
 
   # Check for registration code (if not from invite code)
   if [[ -z "$REGISTRATION_CODE" ]]; then
-    if [[ -n "$SHARE_SITE_REGISTRATION_CODE" ]]; then
-      REGISTRATION_CODE="$SHARE_SITE_REGISTRATION_CODE"
+    if [[ -n "$BASSH_REGISTRATION_CODE" ]]; then
+      REGISTRATION_CODE="$BASSH_REGISTRATION_CODE"
     else
       echo -n -e "${YELLOW}Registration code (press Enter if none): ${NC}"
       read -r REGISTRATION_CODE
@@ -312,13 +312,13 @@ if [[ "$REGISTER_MODE" == true ]]; then
     fi
 
     # Auto-save configuration
-    sed -i '' '/SHARE_SITE_KEY/d' "$SHELL_RC" 2>/dev/null || sed -i '/SHARE_SITE_KEY/d' "$SHELL_RC"
-    echo "export SHARE_SITE_KEY=\"$API_KEY\"" >> "$SHELL_RC"
+    sed -i '' '/BASSH_KEY/d' "$SHELL_RC" 2>/dev/null || sed -i '/BASSH_KEY/d' "$SHELL_RC"
+    echo "export BASSH_KEY=\"$API_KEY\"" >> "$SHELL_RC"
 
     # Also save URL if using invite code
     if [[ -n "$INVITE_CODE" ]]; then
-      sed -i '' '/SHARE_SITE_API/d' "$SHELL_RC" 2>/dev/null || sed -i '/SHARE_SITE_API/d' "$SHELL_RC"
-      echo "export SHARE_SITE_API=\"$WORKER_URL\"" >> "$SHELL_RC"
+      sed -i '' '/BASSH_API/d' "$SHELL_RC" 2>/dev/null || sed -i '/BASSH_API/d' "$SHELL_RC"
+      echo "export BASSH_API=\"$WORKER_URL\"" >> "$SHELL_RC"
     fi
 
     echo ""
@@ -328,7 +328,7 @@ if [[ "$REGISTER_MODE" == true ]]; then
     echo ""
     echo -e "  ${BLUE}Ready to deploy:${NC}"
     echo -e "    source $SHELL_RC"
-    echo -e "    share-site ./my-folder"
+    echo -e "    bassh ./my-folder"
     echo ""
   else
     ERROR=$(echo "$RESPONSE" | grep -oE '"error":"[^"]+"' | cut -d'"' -f4)
@@ -363,7 +363,7 @@ if [[ "$ME_MODE" == true ]]; then
     echo -e "${RED}Not logged in${NC}"
     echo ""
     echo "Register this machine:"
-    echo "  share-site register <username>"
+    echo "  bassh register <username>"
     exit 1
   fi
   exit 0
@@ -415,8 +415,8 @@ if [[ "$KEY_MODE" == true ]]; then
       echo -n -e "${YELLOW}Update API key in $SHELL_RC? (Y/n): ${NC}"
       read -r UPDATE_KEY
       if [[ "$UPDATE_KEY" != "n" && "$UPDATE_KEY" != "N" ]]; then
-        sed -i '' '/SHARE_SITE_KEY/d' "$SHELL_RC" 2>/dev/null || sed -i '/SHARE_SITE_KEY/d' "$SHELL_RC"
-        echo "export SHARE_SITE_KEY=\"$KEY\"" >> "$SHELL_RC"
+        sed -i '' '/BASSH_KEY/d' "$SHELL_RC" 2>/dev/null || sed -i '/BASSH_KEY/d' "$SHELL_RC"
+        echo "export BASSH_KEY=\"$KEY\"" >> "$SHELL_RC"
         echo -e "${GREEN}✓ API key updated in $SHELL_RC${NC}"
         echo ""
         echo -e "Run: ${CYAN}source $SHELL_RC${NC}"
@@ -440,7 +440,7 @@ if [[ "$FORMS_MODE" == true ]]; then
   if [[ -z "$PROJECT_NAME" ]]; then
     echo -e "${RED}Error: Project name required. Use -n <name>${NC}"
     echo ""
-    echo "Usage: share-site forms -n <project-name> [options]"
+    echo "Usage: bassh forms -n <project-name> [options]"
     echo ""
     echo "Options:"
     echo "  --json    Export as JSON"
@@ -578,7 +578,7 @@ if [[ "$UNINSTALL_MODE" == true ]]; then
     echo -e "${RED}Not logged in${NC}"
     echo ""
     echo "Register this machine first:"
-    echo "  share-site register <username>"
+    echo "  bassh register <username>"
     exit 1
   fi
 
@@ -591,7 +591,7 @@ if [[ "$UNINSTALL_MODE" == true ]]; then
 
   echo ""
   echo -e "${RED}════════════════════════════════════════${NC}"
-  echo -e "${RED}       UNINSTALL share-site${NC}"
+  echo -e "${RED}       UNINSTALL bassh${NC}"
   echo -e "${RED}════════════════════════════════════════${NC}"
   echo ""
   echo -e "${YELLOW}This will permanently delete:${NC}"
@@ -642,8 +642,8 @@ if [[ "$UNINSTALL_MODE" == true ]]; then
       SHELL_RC="$HOME/.bashrc"
     fi
 
-    if grep -q "SHARE_SITE_KEY" "$SHELL_RC" 2>/dev/null; then
-      sed -i '' '/SHARE_SITE_KEY/d' "$SHELL_RC" 2>/dev/null || sed -i '/SHARE_SITE_KEY/d' "$SHELL_RC"
+    if grep -q "BASSH_KEY" "$SHELL_RC" 2>/dev/null; then
+      sed -i '' '/BASSH_KEY/d' "$SHELL_RC" 2>/dev/null || sed -i '/BASSH_KEY/d' "$SHELL_RC"
       echo -e "${GREEN}✓ Removed API key from $SHELL_RC${NC}"
     fi
 
@@ -660,7 +660,7 @@ if [[ "$UNINSTALL_MODE" == true ]]; then
     read -r REMOVE_CLI
 
     if [[ "$REMOVE_CLI" == "y" || "$REMOVE_CLI" == "Y" ]]; then
-      CLI_PATH=$(which share-site 2>/dev/null || echo "")
+      CLI_PATH=$(which bassh 2>/dev/null || echo "")
       if [[ -n "$CLI_PATH" && -f "$CLI_PATH" ]]; then
         rm -f "$CLI_PATH" 2>/dev/null && echo -e "${GREEN}✓ Removed CLI from $CLI_PATH${NC}" || echo -e "${YELLOW}Could not remove $CLI_PATH (may need sudo)${NC}"
       else

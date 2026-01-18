@@ -1,4 +1,4 @@
-# share-site Skill for Claude Code
+# bassh Skill for Claude Code
 
 Deploy HTML artifacts directly from Claude Code to password-protected URLs.
 
@@ -10,21 +10,21 @@ Copy the skill to your Claude Code skills directory:
 
 ```bash
 mkdir -p ~/.claude/skills
-curl -fsSL https://raw.githubusercontent.com/bob-rietveld/share-site/main/skill/deploy-artifact.md \
+curl -fsSL https://raw.githubusercontent.com/get-bassh/bassh/main/skill/deploy-artifact.md \
   -o ~/.claude/skills/deploy-artifact.md
 ```
 
 ## Prerequisites
 
-1. **share-site CLI installed:**
+1. **bassh CLI installed:**
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/bob-rietveld/share-site/main/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/get-bassh/bassh/main/install.sh | bash
    source ~/.zshrc
    ```
 
 2. **Registered with an invite code:**
    ```bash
-   share-site register myusername --invite subdomain:secret123
+   bassh register myusername --invite subdomain:secret123
    ```
 
 ## Usage
@@ -45,7 +45,7 @@ Deploy that HTML artifact with a random password
 Claude will:
 1. Check you're set up (guide you through setup if not)
 2. Create a temp directory with your HTML
-3. Deploy via share-site with password protection
+3. Deploy via bassh with password protection
 4. Return the URL and password
 
 ## What It Handles

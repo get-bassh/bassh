@@ -1,9 +1,9 @@
-# share-site deployment workflow
+# bassh deployment workflow
 # Copy this file to your repo: .github/workflows/deploy.yml
 #
 # Required GitHub Secrets:
-#   SHARE_SITE_API - Your share-site worker URL
-#   SHARE_SITE_KEY - Your API key (get with: share-site key)
+#   BASSH_API - Your bassh worker URL
+#   BASSH_KEY - Your API key (get with: bassh key)
 #
 # Optional GitHub Secrets:
 #   SITE_PASSWORD  - Password protection for the site
@@ -44,18 +44,18 @@ jobs:
       # - name: Build
       #   run: npm run build
 
-      - name: Install share-site CLI
+      - name: Install bassh CLI
         run: |
-          curl -fsSL https://raw.githubusercontent.com/bob-rietveld/share-site/main/install.sh | bash
+          curl -fsSL https://raw.githubusercontent.com/get-bassh/bassh/main/install.sh | bash
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Deploy to share-site
+      - name: Deploy to bassh
         env:
-          SHARE_SITE_API: ${{ secrets.SHARE_SITE_API }}
-          SHARE_SITE_KEY: ${{ secrets.SHARE_SITE_KEY }}
+          BASSH_API: ${{ secrets.BASSH_API }}
+          BASSH_KEY: ${{ secrets.BASSH_KEY }}
         run: |
-          share-site ${{ env.DEPLOY_DIR }} -n ${{ env.PROJECT_NAME }}
+          bassh ${{ env.DEPLOY_DIR }} -n ${{ env.PROJECT_NAME }}
 
       - name: Show deployment URL
         run: |
-          echo "Deployed to: https://${{ secrets.SHARE_SITE_API && 'your-username' }}-${{ env.PROJECT_NAME }}.pages.dev"
+          echo "Deployed to: https://${{ secrets.BASSH_API && 'your-username' }}-${{ env.PROJECT_NAME }}.pages.dev"

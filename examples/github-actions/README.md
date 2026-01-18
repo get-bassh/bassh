@@ -1,6 +1,6 @@
 # GitHub Actions Deployment
 
-Auto-deploy your site to share-site when you push to GitHub.
+Auto-deploy your site to bassh when you push to GitHub.
 
 ## Quick Setup
 
@@ -10,7 +10,7 @@ Copy `deploy.yml` to your repository:
 
 ```bash
 mkdir -p .github/workflows
-curl -fsSL https://raw.githubusercontent.com/bob-rietveld/share-site/main/examples/github-actions/deploy.yml \
+curl -fsSL https://raw.githubusercontent.com/get-bassh/bassh/main/examples/github-actions/deploy.yml \
   -o .github/workflows/deploy.yml
 ```
 
@@ -30,8 +30,8 @@ Go to your repo → **Settings** → **Secrets and variables** → **Actions** �
 
 | Secret | Value | Required |
 |--------|-------|----------|
-| `SHARE_SITE_API` | `https://share-site-api.YOUR-SUBDOMAIN.workers.dev` | Yes |
-| `SHARE_SITE_KEY` | Your API key (run `share-site key`) | Yes |
+| `BASSH_API` | `https://bassh-api.YOUR-SUBDOMAIN.workers.dev` | Yes |
+| `BASSH_KEY` | Your API key (run `bassh key`) | Yes |
 | `SITE_PASSWORD` | Password for site access | No |
 | `CUSTOM_DOMAIN` | Your custom domain | No |
 
@@ -52,7 +52,7 @@ Your site deploys automatically on every push to `main`.
 ### Basic (`deploy.yml`)
 
 Simple deployment on push to main:
-- Installs share-site CLI
+- Installs bassh CLI
 - Deploys specified directory
 - No build step (add your own if needed)
 
@@ -98,7 +98,7 @@ Add build steps:
 Add `SITE_PASSWORD` secret, then:
 ```yaml
 - name: Deploy
-  run: share-site ${{ env.DEPLOY_DIR }} -n ${{ env.PROJECT_NAME }} -p "${{ secrets.SITE_PASSWORD }}"
+  run: bassh ${{ env.DEPLOY_DIR }} -n ${{ env.PROJECT_NAME }} -p "${{ secrets.SITE_PASSWORD }}"
 ```
 
 ### With custom domain
@@ -106,7 +106,7 @@ Add `SITE_PASSWORD` secret, then:
 Add `CUSTOM_DOMAIN` secret, then:
 ```yaml
 - name: Deploy
-  run: share-site ${{ env.DEPLOY_DIR }} -n ${{ env.PROJECT_NAME }} --custom-domain "${{ secrets.CUSTOM_DOMAIN }}"
+  run: bassh ${{ env.DEPLOY_DIR }} -n ${{ env.PROJECT_NAME }} --custom-domain "${{ secrets.CUSTOM_DOMAIN }}"
 ```
 
 ---
@@ -115,11 +115,11 @@ Add `CUSTOM_DOMAIN` secret, then:
 
 ### "Not logged in" error
 
-Your `SHARE_SITE_KEY` secret is missing or incorrect. Run `share-site key` locally to get your key.
+Your `BASSH_KEY` secret is missing or incorrect. Run `bassh key` locally to get your key.
 
 ### "Invalid API key" error
 
-Regenerate your key: `share-site key --regenerate`, then update the GitHub secret.
+Regenerate your key: `bassh key --regenerate`, then update the GitHub secret.
 
 ### Build artifacts not found
 

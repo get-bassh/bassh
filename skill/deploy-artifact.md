@@ -1,6 +1,6 @@
 # Deploy Artifact Skill
 
-Deploy HTML artifacts to a password-protected URL using share-site.
+Deploy HTML artifacts to a password-protected URL using bassh.
 
 **Important:** This skill only works in Claude Code (the CLI tool). It does not work in Claude.ai web or Claude Desktop without shell access.
 
@@ -14,19 +14,19 @@ Use this skill when the user asks to:
 
 ## Workflow
 
-### Step 1: Check if share-site CLI is installed
+### Step 1: Check if bassh CLI is installed
 
 Run:
 ```bash
-which share-site
+which bassh
 ```
 
 **If not found**, tell the user:
 ```
-share-site CLI is not installed.
+bassh CLI is not installed.
 
 Install it with:
-  curl -fsSL https://raw.githubusercontent.com/bob-rietveld/share-site/main/install.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/get-bassh/bassh/main/install.sh | bash
   source ~/.zshrc
 
 Then ask me to deploy again.
@@ -37,7 +37,7 @@ Stop here until user installs.
 
 Run:
 ```bash
-share-site me 2>&1
+bassh me 2>&1
 ```
 
 **If output contains "Logged in as"**, proceed to Step 3.
@@ -46,26 +46,26 @@ share-site me 2>&1
 
 Ask the user:
 ```
-You're not registered with share-site yet.
+You're not registered with bassh yet.
 
 Do you have an invite code? It looks like: subdomain:secret123
 
 If yes, tell me your invite code and desired username.
-If no, contact your share-site operator to get one.
+If no, contact your bassh operator to get one.
 ```
 
 Wait for user response.
 
 **When user provides invite code and username**, run:
 ```bash
-share-site register USERNAME --invite INVITE_CODE
+bassh register USERNAME --invite INVITE_CODE
 ```
 
 Check output:
 - If "Registered as USERNAME" → proceed to Step 3
 - If "Invalid invite code" → ask user to check the code
 - If "Username already taken" → ask for different username
-- If "machine already registered" → tell user this computer already has an account, run `share-site me` to see it
+- If "machine already registered" → tell user this computer already has an account, run `bassh me` to see it
 
 ### Step 3: Prepare the HTML content
 
@@ -130,22 +130,22 @@ HTMLEOF
 
 **With password protection:**
 ```bash
-share-site "$DEPLOY_DIR" -p "PASSWORD" -n "PROJECT_NAME"
+bassh "$DEPLOY_DIR" -p "PASSWORD" -n "PROJECT_NAME"
 ```
 
 **With email magic link:**
 ```bash
-share-site "$DEPLOY_DIR" -o "alice@gmail.com,bob@company.com" -n "PROJECT_NAME"
+bassh "$DEPLOY_DIR" -o "alice@gmail.com,bob@company.com" -n "PROJECT_NAME"
 ```
 
 **With domain-based email access:**
 ```bash
-share-site "$DEPLOY_DIR" -o "@company.com" -n "PROJECT_NAME"
+bassh "$DEPLOY_DIR" -o "@company.com" -n "PROJECT_NAME"
 ```
 
 **With custom domain:**
 ```bash
-share-site "$DEPLOY_DIR" -p "PASSWORD" -n "PROJECT_NAME" --custom-domain "CUSTOM_DOMAIN"
+bassh "$DEPLOY_DIR" -p "PASSWORD" -n "PROJECT_NAME" --custom-domain "CUSTOM_DOMAIN"
 ```
 
 Clean up:
@@ -193,13 +193,13 @@ Once configured, https://docs.example.com will be live.
 
 **If deployment failed**, check the error:
 - "not logged in" → go back to Step 2
-- "Invalid API key" → tell user to re-register or run `share-site key --regenerate`
+- "Invalid API key" → tell user to re-register or run `bassh key --regenerate`
 - Network error → ask user to check internet connection
-- Other error → show the error and suggest running `share-site me` to verify setup
+- Other error → show the error and suggest running `bassh me` to verify setup
 
 ## Error Recovery
 
-### "command not found: share-site"
+### "command not found: bassh"
 CLI not installed. Guide user through installation.
 
 ### "Not logged in" or auth errors
@@ -212,13 +212,13 @@ User provided wrong code. Ask them to verify with their operator.
 Ask for a different username.
 
 ### "This machine is already registered"
-Computer has existing account. Run `share-site me` to see current user.
-If user wants different account, they must run `share-site uninstall` first.
+Computer has existing account. Run `bassh me` to see current user.
+If user wants different account, they must run `bassh uninstall` first.
 
 ### Deployment returns no URL
 Unexpected error. Show full output and suggest:
-1. Check `share-site me` works
-2. Try `share-site -l` to list projects
+1. Check `bassh me` works
+2. Try `bassh -l` to list projects
 3. Check internet connection
 
 ## Example Conversation
@@ -229,9 +229,9 @@ Unexpected error. Show full output and suggest:
 ```
 
 **Assistant:**
-1. Checks `share-site me` → user is logged in
+1. Checks `bassh me` → user is logged in
 2. Creates temp dir, writes HTML
-3. Runs `share-site /tmp/xxx -p demo123`
+3. Runs `bassh /tmp/xxx -p demo123`
 4. Reports:
    ```
    Deployed successfully!
@@ -249,19 +249,19 @@ Unexpected error. Show full output and suggest:
 
 ## Forms (Optional)
 
-If the user wants to collect form submissions from their deployed site, you can add a form that posts to the share-site API.
+If the user wants to collect form submissions from their deployed site, you can add a form that posts to the bassh API.
 
 ### Adding a Form
 
 First, get the user's info:
 ```bash
-share-site me
+bassh me
 ```
 
 Output shows:
 ```
 Logged in as: username
-API: https://share-site-api.yourname.workers.dev
+API: https://bassh-api.yourname.workers.dev
 Domain: username-{project}.pages.dev
 ```
 
@@ -276,7 +276,7 @@ Use this info to construct the form:
 ### Example Form HTML
 
 ```html
-<form action="https://share-site-api.yourname.workers.dev/form/my-project" method="POST">
+<form action="https://bassh-api.yourname.workers.dev/form/my-project" method="POST">
   <input type="hidden" name="_redirect" value="https://username-my-project.pages.dev/thanks.html">
   <input type="hidden" name="_honeypot" value="" style="display:none">
 
@@ -289,7 +289,7 @@ Use this info to construct the form:
 
 **With custom domain:**
 ```html
-<form action="https://share-site-api.yourname.workers.dev/form/my-project" method="POST">
+<form action="https://bassh-api.yourname.workers.dev/form/my-project" method="POST">
   <input type="hidden" name="_redirect" value="https://docs.example.com/thanks.html">
   ...
 </form>
@@ -314,19 +314,19 @@ When deploying a site with a form, include a `thanks.html` file:
 
 ```bash
 # Human-readable list
-share-site forms -n my-project
+bassh forms -n my-project
 
 # Export as CSV
-share-site forms -n my-project --csv
+bassh forms -n my-project --csv
 
 # Export as JSON
-share-site forms -n my-project --json
+bassh forms -n my-project --json
 
 # Count only
-share-site forms -n my-project --count
+bassh forms -n my-project --count
 
 # Clear all
-share-site forms -n my-project --clear
+bassh forms -n my-project --clear
 ```
 
 ### Limits
