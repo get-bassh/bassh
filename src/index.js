@@ -1,6 +1,9 @@
 // share-site-worker: Multi-tenant deployment backend for Cloudflare Pages
 // Deploy this worker once, then anyone with the CLI can deploy sites to your account
 
+import { EmailMessage } from "cloudflare:email";
+import { createMimeMessage } from "mimetext";
+
 // ============================================================
 // AUTHENTICATION & USER MANAGEMENT
 // ============================================================
@@ -852,25 +855,24 @@ async function handleOTPRequest(request, env, corsHeaders) {
     // Build magic link
     const magicLink = `${pageUrl}?otp=${otp}`;
 
-    // Send email via Resend
-    if (!env.RESEND_API_KEY) {
-      return new Response(JSON.stringify({ error: 'Email service not configured' }), {
+    // Send email via Cloudflare Email Service
+    if (!env.EMAIL) {
+      return new Response(JSON.stringify({ error: 'Email service not configured. Add send_email binding to wrangler.toml' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
-    const emailRes = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        from: env.RESEND_FROM || 'access@share-site.dev',
-        to: email,
-        subject: 'Your Access Link',
-        html: `
+    const senderEmail = env.EMAIL_FROM || 'access@' + new URL(request.url).hostname.split('.').slice(-2).join('.');
+
+    try {
+      const msg = createMimeMessage();
+      msg.setSender({ name: "Share Site", addr: senderEmail });
+      msg.setRecipient(email);
+      msg.setSubject("Your Access Link");
+      msg.addMessage({
+        contentType: 'text/html',
+        data: `
           <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px;">
             <h2 style="color: #1a1a1a; margin-bottom: 16px;">Access Requested</h2>
             <p style="color: #666; line-height: 1.6;">Click the button below to access the protected page. This link expires in 5 minutes.</p>
@@ -878,13 +880,13 @@ async function handleOTPRequest(request, env, corsHeaders) {
             <p style="color: #999; font-size: 14px;">If you didn't request this, you can ignore this email.</p>
           </div>
         `
-      })
-    });
+      });
 
-    if (!emailRes.ok) {
-      const emailError = await emailRes.text();
-      console.error('Resend error:', emailError);
-      return new Response(JSON.stringify({ error: 'Failed to send email' }), {
+      const message = new EmailMessage(senderEmail, email, msg.asRaw());
+      await env.EMAIL.send(message);
+    } catch (emailError) {
+      console.error('Email error:', emailError);
+      return new Response(JSON.stringify({ error: 'Failed to send email', details: emailError.message }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });

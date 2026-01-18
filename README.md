@@ -74,7 +74,7 @@ share-site ./my-site -o "alice@gmail.com,bob@company.com"
 share-site ./my-site -o "@company.com"
 ```
 
-**Note:** Requires operator to configure Resend API key (see Operator Setup).
+**Note:** Requires operator to enable Cloudflare Email Routing (see Operator Setup).
 
 ### Custom Domains
 
@@ -278,18 +278,24 @@ npx wrangler secret put CF_ACCOUNT_ID
 
 #### 5. (Optional) Enable Email Magic Links
 
-To support the `-o` flag for email magic links, set up [Resend](https://resend.com):
+To support the `-o` flag for email magic links, enable [Cloudflare Email Routing](https://developers.cloudflare.com/email-routing/):
 
-1. Create a free Resend account
-2. Add your domain and configure DNS records
-3. Generate an API key
-4. Set the secrets:
+1. Go to your domain in Cloudflare dashboard
+2. Enable Email Routing
+3. Add the `send_email` binding to wrangler.toml:
 
-```bash
-npx wrangler secret put RESEND_API_KEY
-npx wrangler secret put RESEND_FROM
-# RESEND_FROM should be your verified sender, e.g., access@yourdomain.com
+```toml
+[[send_email]]
+name = "EMAIL"
 ```
+
+4. (Optional) Set a custom sender address:
+```bash
+npx wrangler secret put EMAIL_FROM
+# e.g., access@yourdomain.com
+```
+
+Emails are sent from your domain using Cloudflare's email infrastructure.
 
 #### 6. Deploy
 

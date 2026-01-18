@@ -1,6 +1,7 @@
 name = "share-site-api"
 main = "src/index.js"
-compatibility_date = "2024-01-01"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
 
 # You'll set these after deploying:
 # wrangler secret put CF_API_TOKEN
@@ -17,3 +18,9 @@ id = "c518e88a0d6b4b598acd481e9e166f0a"
 [[kv_namespaces]]
 binding = "FORMS"
 id = "0f0ed009333b4420a8fea4a3fb2f2a1d"
+
+# Email sending for magic links (optional - for -o flag)
+# Requires Email Routing enabled on your domain
+# See: https://developers.cloudflare.com/email-routing/email-workers/send-email-workers/
+[[send_email]]
+name = "EMAIL"
