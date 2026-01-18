@@ -55,7 +55,7 @@ share-site ./my-site -d "@company.com"
 share-site ./my-site --custom-domain docs.example.com
 ```
 
-### Email Magic Links
+### Email Magic Links (Optional)
 
 Protect your site with email verification. Visitors enter their email and receive a magic link to access.
 
@@ -74,7 +74,7 @@ share-site ./my-site -o "alice@gmail.com,bob@company.com"
 share-site ./my-site -o "@company.com"
 ```
 
-**Note:** Requires operator to enable Cloudflare Email Routing (see Operator Setup).
+> **Operator requirement:** This feature requires Cloudflare Email Routing, which means the operator's domain must have its nameservers pointed to Cloudflare. If your operator hasn't enabled this, use `-p` (password) instead. See Operator Setup for details.
 
 ### Custom Domains
 
@@ -278,10 +278,17 @@ npx wrangler secret put CF_ACCOUNT_ID
 
 #### 5. (Optional) Enable Email Magic Links
 
-To support the `-o` flag for email magic links, enable [Cloudflare Email Routing](https://developers.cloudflare.com/email-routing/):
+To support the `-o` flag for email magic links, you need [Cloudflare Email Routing](https://developers.cloudflare.com/email-routing/).
 
-1. Go to your domain in Cloudflare dashboard
-2. Enable Email Routing
+**Requirements:**
+- Your domain's **nameservers must point to Cloudflare** (not just the worker)
+- If your domain is hosted elsewhere, you'll need to change nameservers to Cloudflare
+- This is optional - users can still use `-p` (password) without this setup
+
+**Setup steps:**
+
+1. Add your domain to Cloudflare (if not already) and update nameservers
+2. Go to your domain → Email → Email Routing → Enable
 3. Add the `send_email` binding to wrangler.toml:
 
 ```toml
@@ -289,13 +296,13 @@ To support the `-o` flag for email magic links, enable [Cloudflare Email Routing
 name = "EMAIL"
 ```
 
-4. (Optional) Set a custom sender address:
+4. Set the sender address (must be on your Cloudflare domain):
 ```bash
 npx wrangler secret put EMAIL_FROM
 # e.g., access@yourdomain.com
 ```
 
-Emails are sent from your domain using Cloudflare's email infrastructure.
+**If you skip this step:** The `-o` flag will return an error, but all other features (`-p`, `-e`, `-d`) work normally.
 
 #### 6. Deploy
 
