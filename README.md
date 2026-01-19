@@ -242,7 +242,35 @@ Get your API key with `bassh key`.
 
 ## For Operators
 
-### Get Started
+### Quick Setup (Recommended)
+
+One command sets up everything:
+
+```bash
+git clone https://github.com/get-bassh/bassh.git
+cd bassh
+./setup.sh
+```
+
+The setup script will:
+1. Create KV namespaces (USERS, FORMS)
+2. Configure wrangler.toml
+3. Set all required secrets
+4. Deploy the worker
+5. Display your invite code
+
+**Prerequisites:**
+- Node.js installed
+- [Cloudflare API Token](https://dash.cloudflare.com/profile/api-tokens) with permissions:
+  - **Account** > Cloudflare Pages > Edit
+  - **Account** > Access: Apps and Policies > Edit
+
+---
+
+### Manual Setup
+
+<details>
+<summary>Click to expand manual setup steps</summary>
 
 #### 1. Create Cloudflare API Token
 
@@ -251,10 +279,11 @@ Get your API key with `bassh key`.
    - **Account** > Cloudflare Pages > Edit
    - **Account** > Access: Apps and Policies > Edit
 
-#### 2. Create KV Namespace
+#### 2. Create KV Namespaces
 
 ```bash
 npx wrangler kv namespace create USERS
+npx wrangler kv namespace create FORMS
 ```
 
 #### 3. Configure wrangler.toml
@@ -266,7 +295,11 @@ compatibility_date = "2024-01-01"
 
 [[kv_namespaces]]
 binding = "USERS"
-id = "your-namespace-id"
+id = "your-users-namespace-id"
+
+[[kv_namespaces]]
+binding = "FORMS"
+id = "your-forms-namespace-id"
 ```
 
 #### 4. Set Secrets
@@ -274,9 +307,20 @@ id = "your-namespace-id"
 ```bash
 npx wrangler secret put CF_API_TOKEN
 npx wrangler secret put CF_ACCOUNT_ID
+npx wrangler secret put REGISTRATION_CODE  # optional, for invite-only
 ```
 
-#### 5. (Optional) Enable Email Magic Links
+#### 5. Deploy
+
+```bash
+npx wrangler deploy
+```
+
+</details>
+
+---
+
+### (Optional) Enable Email Magic Links
 
 To support the `-o` flag for email magic links, you need [Cloudflare Email Routing](https://developers.cloudflare.com/email-routing/).
 
@@ -304,26 +348,20 @@ npx wrangler secret put EMAIL_FROM
 
 **If you skip this step:** The `-o` flag will return an error, but all other features (`-p`, `-e`, `-d`) work normally.
 
-#### 6. Deploy
+---
 
-```bash
-npx wrangler deploy
-```
+### Invite Codes
 
-#### 7. Create Invite Code
-
-```bash
-npx wrangler secret put REGISTRATION_CODE
-# Enter a secret, e.g.: mysecret123
-```
-
-Your invite code is `subdomain:secret`. For example, if deployed at `https://bassh-api.bob-rietveld.workers.dev` with secret `mysecret123`:
+Your invite code format is `subdomain:secret`. For example, if deployed at `https://bassh-api.bob-rietveld.workers.dev` with registration code `mysecret123`:
 
 ```
 bob-rietveld:mysecret123
 ```
 
-Share this with your users.
+Share this with your users:
+```bash
+bassh register alice --invite bob-rietveld:mysecret123
+```
 
 ### Registration Modes
 
