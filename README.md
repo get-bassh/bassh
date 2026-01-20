@@ -74,7 +74,7 @@ bassh ./my-site -o "alice@gmail.com,bob@company.com"
 bassh ./my-site -o "@company.com"
 ```
 
-> **Operator requirement:** This feature requires Cloudflare Email Routing, which means the operator's domain must have its nameservers pointed to Cloudflare. If your operator hasn't enabled this, use `-p` (password) instead. See Operator Setup for details.
+> **Operator requirement:** This feature requires the operator to set up [Resend](https://resend.com) for email sending. If your operator hasn't enabled this, use `-p` (password) instead. See Operator Setup for details.
 
 ### Custom Domains
 
@@ -102,10 +102,17 @@ Once DNS is configured, https://docs.example.com will be live.
 (SSL is provisioned automatically by Cloudflare)
 ```
 
+**Two-step process:**
+1. **CLI registers the domain** with Cloudflare Pages (status: "pending")
+2. **You add the DNS record** to point to Pages (status: "active")
+
+This is by design - bassh won't auto-modify your DNS records for safety.
+
 **Notes:**
 - Subdomains (docs.example.com, www.example.com) work with any DNS provider via CNAME
-- Root domains (example.com) require CNAME flattening (Cloudflare DNS) or ALIAS records
+- Root domains (example.com) require Cloudflare DNS (CNAME flattening) or ALIAS records
 - Cloudflare automatically provisions and renews SSL certificates
+- If your domain is on Cloudflare, enable the orange proxy cloud for best performance
 
 ### Form Submissions
 
@@ -114,7 +121,7 @@ Collect form data from your static sites. No backend needed.
 **1. Add a form to your HTML:**
 
 ```html
-<form action="https://bassh-api.yourname.workers.dev/form/my-project" method="POST">
+<form action="https://bassh-api.yoursubdomain.workers.dev/form/username-projectname" method="POST">
   <input type="text" name="name" placeholder="Name" required>
   <input type="email" name="email" placeholder="Email" required>
   <textarea name="message" placeholder="Message"></textarea>
@@ -122,7 +129,10 @@ Collect form data from your static sites. No backend needed.
 </form>
 ```
 
-Get your API URL with `bassh me`.
+**Important:** The form action URL must use the **full project name** format: `username-projectname`
+
+- Run `bassh -l` to see your full project names (e.g., `bob-site`, `alice-docs`)
+- Run `bassh me` to get your API URL and username
 
 **2. View submissions:**
 
@@ -242,108 +252,159 @@ Get your API key with `bassh key`.
 
 ## For Operators
 
-### Quick Setup (Recommended)
+### Prerequisites
 
-One command sets up everything:
-
-```bash
-git clone https://github.com/get-bassh/bassh.git
-cd bassh
-./setup.sh
-```
-
-The setup script will:
-1. Create KV namespaces (USERS, FORMS)
-2. Configure wrangler.toml
-3. Set all required secrets
-4. Deploy the worker
-5. Display your invite code
-
-**Prerequisites:**
-- Node.js installed
-- [Cloudflare API Token](https://dash.cloudflare.com/profile/api-tokens) with permissions:
-  - **Account** > Cloudflare Pages > Edit
-  - **Account** > Access: Apps and Policies > Edit
+- **Node.js** (v18+) - includes npm and npx
+- **Cloudflare account** - free tier works
+- **Resend account** (optional) - for email magic links, free tier: 3k emails/month
 
 ---
 
-### Manual Setup
+### Step 1: Clone and Setup Location
 
-<details>
-<summary>Click to expand manual setup steps</summary>
+```bash
+# Clone to ~/bassh (important - alias depends on this location)
+git clone https://github.com/get-bassh/bassh.git ~/bassh
+cd ~/bassh
+```
 
-#### 1. Create Cloudflare API Token
+---
+
+### Step 2: Create Cloudflare API Token
 
 1. Go to https://dash.cloudflare.com/profile/api-tokens
-2. Create token with permissions:
-   - **Account** > Cloudflare Pages > Edit
-   - **Account** > Access: Apps and Policies > Edit
+2. Click **Create Token** → **Create Custom Token**
+3. Configure permissions:
 
-#### 2. Create KV Namespaces
+| Permission | Access |
+|------------|--------|
+| Account → **Workers KV Storage** | Edit |
+| Account → **Cloudflare Pages** | Edit |
+| Account → **Access: Apps and Policies** | Edit |
+| Account → **Account Settings** | Read |
+| Zone → **Email Routing Rules** | Edit (optional, for emails) |
+
+4. Account Resources: **Include → Your account**
+5. Zone Resources: **Include → All zones**
+6. Create and **copy the token** (you only see it once!)
+
+---
+
+### Step 3: Set Environment Variables
+
+```bash
+export CLOUDFLARE_API_TOKEN="your-api-token"
+export CLOUDFLARE_ACCOUNT_ID="your-account-id"
+```
+
+To find your Account ID: run `npx wrangler whoami` or check the Cloudflare dashboard URL.
+
+---
+
+### Step 4: Create KV Namespaces
 
 ```bash
 npx wrangler kv namespace create USERS
 npx wrangler kv namespace create FORMS
 ```
 
-#### 3. Configure wrangler.toml
+Copy the **ID** from each output (32-character hex string).
+
+Update `wrangler.toml` with your namespace IDs:
 
 ```toml
-name = "bassh-api"
-main = "src/index.js"
-compatibility_date = "2024-01-01"
-
 [[kv_namespaces]]
 binding = "USERS"
-id = "your-users-namespace-id"
+id = "your-users-namespace-id-here"
 
 [[kv_namespaces]]
 binding = "FORMS"
-id = "your-forms-namespace-id"
+id = "your-forms-namespace-id-here"
 ```
 
-#### 4. Set Secrets
+---
+
+### Step 5: Set Workers.dev Subdomain
+
+New Cloudflare accounts get an auto-generated subdomain (e.g., `bob-9d5`). To change it:
+
+1. Go to **Workers & Pages** in Cloudflare dashboard
+2. Click **Account Settings** or the subdomain area
+3. Change to something memorable (e.g., `bassh`, `mycompany`)
+
+> **Note:** This cannot be set via CLI - dashboard only. Changes may take a few minutes to propagate.
+
+---
+
+### Step 6: Set Worker Secrets
 
 ```bash
-npx wrangler secret put CF_API_TOKEN
-npx wrangler secret put CF_ACCOUNT_ID
-npx wrangler secret put REGISTRATION_CODE  # optional, for invite-only
+# Required: Your account ID
+echo "your-account-id" | npx wrangler secret put CF_ACCOUNT_ID --name bassh-api
+
+# Required: Your API token (same one from Step 2)
+npx wrangler secret put CF_API_TOKEN --name bassh-api
+
+# Optional: Registration code for invite-only mode
+# Make it memorable - users need this to register
+npx wrangler secret put REGISTRATION_CODE --name bassh-api
 ```
 
-#### 5. Deploy
+---
+
+### Step 7: Deploy
 
 ```bash
 npx wrangler deploy
 ```
 
-</details>
+Note the output URL: `https://bassh-api.<subdomain>.workers.dev`
+
+---
+
+### Step 8: Add Deploy Alias (Convenience)
+
+Add to your `~/.zshrc` or `~/.bashrc`:
+
+```bash
+echo 'alias bassh-deploy="npx wrangler deploy --config ~/bassh/wrangler.toml"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Now you can run `bassh-deploy` from anywhere to update the worker.
 
 ---
 
 ### (Optional) Enable Email Magic Links
 
-To support the `-o` flag for email magic links, you need [Cloudflare Email Routing](https://developers.cloudflare.com/email-routing/).
+To support the `-o` flag for email-protected sites, set up [Resend](https://resend.com).
 
-**Requirements:**
-- Your domain's **nameservers must point to Cloudflare** (not just the worker)
-- If your domain is hosted elsewhere, you'll need to change nameservers to Cloudflare
-- This is optional - users can still use `-p` (password) without this setup
+**Why Resend?** Cloudflare Email Routing can only send to pre-verified addresses. Resend allows sending to any email.
 
-**Setup steps:**
+#### 1. Create Resend Account
 
-1. Add your domain to Cloudflare (if not already) and update nameservers
-2. Go to your domain → Email → Email Routing → Enable
-3. Add the `send_email` binding to wrangler.toml:
+1. Sign up at https://resend.com
+2. Add and verify your domain (e.g., `email.yourdomain.com`)
+3. Add the DNS records Resend provides (SPF, DKIM)
+4. Create an API key at https://resend.com/api-keys
 
-```toml
-[[send_email]]
-name = "EMAIL"
+#### 2. Set Secrets
+
+```bash
+# Resend API key (starts with re_...)
+npx wrangler secret put RESEND_API_KEY --name bassh-api
+
+# Sender email - MUST be on your verified Resend domain
+npx wrangler secret put EMAIL_FROM --name bassh-api
+# e.g., noreply@email.yourdomain.com
 ```
 
-4. Set the sender address (must be on your Cloudflare domain):
+> **Important:** The EMAIL_FROM domain must match the domain verified in Resend. If you verified `email.bassh.io`, use `noreply@email.bassh.io` (not `noreply@bassh.io`).
+
+#### 3. Redeploy
+
 ```bash
-npx wrangler secret put EMAIL_FROM
-# e.g., access@yourdomain.com
+bassh-deploy
 ```
 
 **If you skip this step:** The `-o` flag will return an error, but all other features (`-p`, `-e`, `-d`) work normally.
@@ -352,23 +413,39 @@ npx wrangler secret put EMAIL_FROM
 
 ### Invite Codes
 
-Your invite code format is `subdomain:secret`. For example, if deployed at `https://bassh-api.bob-rietveld.workers.dev` with registration code `mysecret123`:
+Your invite code format is `subdomain:secret`.
+
+For example, if deployed at `https://bassh-api.bassh.workers.dev` with registration code `welcome123`:
 
 ```
-bob-rietveld:mysecret123
+bassh:welcome123
 ```
 
 Share this with your users:
 ```bash
-bassh register alice --invite bob-rietveld:mysecret123
+bassh register alice --invite bassh:welcome123
 ```
+
+> **Tip:** Choose a memorable registration code - users will need to type it.
 
 ### Registration Modes
 
 | Mode | Setup | Users Need |
 |------|-------|------------|
-| **Invite Code** | Set `REGISTRATION_CODE` | Just the invite code |
-| **Open** | No `REGISTRATION_CODE` | The `BASSH_API` URL |
+| **Invite Code** | Set `REGISTRATION_CODE` secret | Just the invite code |
+| **Open** | Don't set `REGISTRATION_CODE` | The `BASSH_API` URL |
+
+---
+
+### Quick Reference: All Secrets
+
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `CF_ACCOUNT_ID` | Yes | Your Cloudflare account ID |
+| `CF_API_TOKEN` | Yes | API token with Pages/KV/Access permissions |
+| `REGISTRATION_CODE` | No | Invite code for users (omit for open registration) |
+| `RESEND_API_KEY` | No | Resend API key for magic link emails |
+| `EMAIL_FROM` | No | Sender email (must match Resend verified domain) |
 
 ---
 

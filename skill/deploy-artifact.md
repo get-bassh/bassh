@@ -334,3 +334,93 @@ bassh forms -n my-project --clear
 - 10 submissions/minute per IP
 - 10KB max payload
 - 90-day retention
+
+---
+
+## Operator Setup
+
+Use this section when a user wants to run their own bassh infrastructure on Cloudflare.
+
+### Prerequisites
+
+- Node.js installed
+- Cloudflare account (free tier works)
+- Cloudflare API Token with permissions:
+  - **Account** > Cloudflare Pages > Edit
+  - **Account** > Access: Apps and Policies > Edit
+
+### Step 1: Clone and Setup
+
+```bash
+git clone https://github.com/get-bassh/bassh.git
+cd bassh
+./setup.sh
+```
+
+The setup script will interactively:
+1. Log in to Cloudflare (if needed)
+2. Create KV namespaces (USERS, FORMS)
+3. Update wrangler.toml with namespace IDs
+4. Prompt for secrets:
+   - `CF_ACCOUNT_ID` (auto-detected)
+   - `CF_API_TOKEN` (user provides)
+   - `REGISTRATION_CODE` (optional, for invite-only mode)
+   - `EMAIL_FROM` (optional, for magic link feature)
+5. Deploy the worker
+6. Display the invite code
+
+### Step 2: Get Invite Code
+
+After setup completes, the script displays:
+```
+Your worker URL:
+  https://bassh-api.yoursubdomain.workers.dev
+
+Your invite code:
+  yoursubdomain:yoursecret
+```
+
+### Step 3: Share with Users
+
+Tell users to register with:
+```bash
+curl -fsSL https://raw.githubusercontent.com/get-bassh/bassh/main/install.sh | bash
+source ~/.zshrc
+bassh register USERNAME --invite yoursubdomain:yoursecret
+```
+
+### Optional: Email Magic Links
+
+To enable the `-o` flag for email magic links:
+
+1. Domain must have nameservers pointing to Cloudflare
+2. Enable Email Routing: Domain → Email → Email Routing → Enable
+3. Set `EMAIL_FROM` secret during setup (e.g., `access@yourdomain.com`)
+
+If not configured, users can still use `-p` (password) protection.
+
+### Operator Commands
+
+```bash
+# Redeploy after changes
+npx wrangler deploy
+
+# View logs
+npx wrangler tail
+
+# Update a secret
+npx wrangler secret put SECRET_NAME
+
+# List KV namespaces
+npx wrangler kv namespace list
+```
+
+### Costs
+
+All on Cloudflare free tier:
+- Workers: 100k requests/day
+- Pages: unlimited sites, 500 builds/month
+- Access: 50 users
+- KV: 100k reads/day, 1k writes/day
+
+**$0/month** for small teams.

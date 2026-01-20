@@ -13,14 +13,12 @@ compatibility_flags = ["nodejs_compat"]
 
 [[kv_namespaces]]
 binding = "USERS"
-id = "c518e88a0d6b4b598acd481e9e166f0a"
+id = "6f2b0c44791b43519a5c06a47fb43c56"
 
 [[kv_namespaces]]
 binding = "FORMS"
-id = "0f0ed009333b4420a8fea4a3fb2f2a1d"
+id = "2560c390c6a84c42bc1ed03107b3c68c"
 
 # Email sending for magic links (optional - for -o flag)
-# Requires Email Routing enabled on your domain
-# See: https://developers.cloudflare.com/email-routing/email-workers/send-email-workers/
-[[send_email]]
-name = "EMAIL"
+# Requires Resend account: https://resend.com
+# Set secrets: RESEND_API_KEY, EMAIL_FROM

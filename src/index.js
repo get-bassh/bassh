@@ -855,35 +855,46 @@ async function handleOTPRequest(request, env, corsHeaders) {
     // Build magic link
     const magicLink = `${pageUrl}?otp=${otp}`;
 
-    // Send email via Cloudflare Email Service
-    if (!env.EMAIL) {
-      return new Response(JSON.stringify({ error: 'Email service not configured. Add send_email binding to wrangler.toml' }), {
+    // Send email via Resend
+    if (!env.RESEND_API_KEY) {
+      return new Response(JSON.stringify({ error: 'Email service not configured. Set RESEND_API_KEY secret.' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
-    const senderEmail = env.EMAIL_FROM || 'access@' + new URL(request.url).hostname.split('.').slice(-2).join('.');
+    const senderEmail = env.EMAIL_FROM || 'access@bassh.io';
 
     try {
-      const msg = createMimeMessage();
-      msg.setSender({ name: "Share Site", addr: senderEmail });
-      msg.setRecipient(email);
-      msg.setSubject("Your Access Link");
-      msg.addMessage({
-        contentType: 'text/html',
-        data: `
-          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px;">
-            <h2 style="color: #1a1a1a; margin-bottom: 16px;">Access Requested</h2>
-            <p style="color: #666; line-height: 1.6;">Click the button below to access the protected page. This link expires in 5 minutes.</p>
-            <a href="${magicLink}" style="display: inline-block; background: #0066ff; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500; margin: 20px 0;">Open Page</a>
-            <p style="color: #999; font-size: 14px;">If you didn't request this, you can ignore this email.</p>
-          </div>
-        `
+      const resendResponse = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from: `bassh <${senderEmail}>`,
+          to: [email],
+          subject: 'Your Access Link',
+          html: `
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px;">
+              <h2 style="color: #1a1a1a; margin-bottom: 16px;">Access Requested</h2>
+              <p style="color: #666; line-height: 1.6;">Click the button below to access the protected page. This link expires in 5 minutes.</p>
+              <a href="${magicLink}" style="display: inline-block; background: #0066ff; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500; margin: 20px 0;">Open Page</a>
+              <p style="color: #999; font-size: 14px;">If you didn't request this, you can ignore this email.</p>
+            </div>
+          `
+        })
       });
 
-      const message = new EmailMessage(senderEmail, email, msg.asRaw());
-      await env.EMAIL.send(message);
+      if (!resendResponse.ok) {
+        const errorData = await resendResponse.json();
+        console.error('Resend error:', errorData);
+        return new Response(JSON.stringify({ error: 'Failed to send email', details: errorData.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
     } catch (emailError) {
       console.error('Email error:', emailError);
       return new Response(JSON.stringify({ error: 'Failed to send email', details: emailError.message }), {
