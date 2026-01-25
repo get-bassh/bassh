@@ -340,6 +340,18 @@ fi
 
 # Handle me mode
 if [[ "$ME_MODE" == true ]]; then
+  # Check if worker URL is configured
+  if [[ -z "$WORKER_URL" ]]; then
+    echo -e "${RED}Error: BASSH_API not configured${NC}"
+    echo ""
+    echo "Did you recently register? Try:"
+    echo -e "  ${CYAN}source ~/.zshrc${NC}  (or source ~/.bashrc)"
+    echo ""
+    echo "Or set it manually:"
+    echo -e "  ${CYAN}export BASSH_API=https://your-worker.workers.dev${NC}"
+    exit 1
+  fi
+
   MACHINE_ID=$(get_machine_id)
 
   RESPONSE=$(curl -s -X GET "$WORKER_URL/me" \
@@ -360,10 +372,17 @@ if [[ "$ME_MODE" == true ]]; then
     echo -e "${BLUE}Created:${NC} $CREATED"
     echo ""
   else
-    echo -e "${RED}Not logged in${NC}"
+    echo -e "${RED}Not authenticated${NC}"
     echo ""
-    echo "Register this machine:"
-    echo "  bassh register <username>"
+    echo "Possible issues:"
+    echo "  ${YELLOW}•${NC} This machine isn't registered"
+    echo "  ${YELLOW}•${NC} Your API key is invalid or expired"
+    echo ""
+    echo "To register this machine:"
+    echo "  ${CYAN}bassh register <username>${NC}"
+    echo ""
+    echo "Or regenerate your API key on a registered machine:"
+    echo "  ${CYAN}bassh key --regenerate${NC}"
     exit 1
   fi
   exit 0
@@ -371,6 +390,18 @@ fi
 
 # Handle key mode
 if [[ "$KEY_MODE" == true ]]; then
+  # Check if worker URL is configured
+  if [[ -z "$WORKER_URL" ]]; then
+    echo -e "${RED}Error: BASSH_API not configured${NC}"
+    echo ""
+    echo "Did you recently register? Try:"
+    echo -e "  ${CYAN}source ~/.zshrc${NC}  (or source ~/.bashrc)"
+    echo ""
+    echo "Or set it manually:"
+    echo -e "  ${CYAN}export BASSH_API=https://your-worker.workers.dev${NC}"
+    exit 1
+  fi
+
   MACHINE_ID=$(get_machine_id)
 
   if [[ "$KEY_REGENERATE" == true ]]; then
@@ -437,6 +468,18 @@ fi
 
 # Handle forms mode
 if [[ "$FORMS_MODE" == true ]]; then
+  # Check if worker URL is configured
+  if [[ -z "$WORKER_URL" ]]; then
+    echo -e "${RED}Error: BASSH_API not configured${NC}"
+    echo ""
+    echo "Did you recently register? Try:"
+    echo -e "  ${CYAN}source ~/.zshrc${NC}  (or source ~/.bashrc)"
+    echo ""
+    echo "Or set it manually:"
+    echo -e "  ${CYAN}export BASSH_API=https://your-worker.workers.dev${NC}"
+    exit 1
+  fi
+
   if [[ -z "$PROJECT_NAME" ]]; then
     echo -e "${RED}Error: Project name required. Use -n <name>${NC}"
     echo ""
@@ -569,6 +612,18 @@ MACHINE_ID=$(get_machine_id)
 
 # Handle uninstall mode
 if [[ "$UNINSTALL_MODE" == true ]]; then
+  # Check if worker URL is configured
+  if [[ -z "$WORKER_URL" ]]; then
+    echo -e "${RED}Error: BASSH_API not configured${NC}"
+    echo ""
+    echo "Did you recently register? Try:"
+    echo -e "  ${CYAN}source ~/.zshrc${NC}  (or source ~/.bashrc)"
+    echo ""
+    echo "Or set it manually:"
+    echo -e "  ${CYAN}export BASSH_API=https://your-worker.workers.dev${NC}"
+    exit 1
+  fi
+
   # Get user info first
   ME_RESPONSE=$(curl -s -X GET "$WORKER_URL/me" \
     -H "X-Machine-ID: $MACHINE_ID" \
@@ -684,6 +739,18 @@ fi
 
 # Handle list mode
 if [[ "$LIST_MODE" == true ]]; then
+  # Check if worker URL is configured
+  if [[ -z "$WORKER_URL" ]]; then
+    echo -e "${RED}Error: BASSH_API not configured${NC}"
+    echo ""
+    echo "Did you recently register? Try:"
+    echo -e "  ${CYAN}source ~/.zshrc${NC}  (or source ~/.bashrc)"
+    echo ""
+    echo "Or set it manually:"
+    echo -e "  ${CYAN}export BASSH_API=https://your-worker.workers.dev${NC}"
+    exit 1
+  fi
+
   RESPONSE=$(curl -s -X GET "$WORKER_URL" \
     -H "X-Machine-ID: $MACHINE_ID" \
     -H "X-API-Key: $API_KEY")
@@ -723,6 +790,18 @@ fi
 
 # Handle delete mode
 if [[ "$DELETE_MODE" == true ]]; then
+  # Check if worker URL is configured
+  if [[ -z "$WORKER_URL" ]]; then
+    echo -e "${RED}Error: BASSH_API not configured${NC}"
+    echo ""
+    echo "Did you recently register? Try:"
+    echo -e "  ${CYAN}source ~/.zshrc${NC}  (or source ~/.bashrc)"
+    echo ""
+    echo "Or set it manually:"
+    echo -e "  ${CYAN}export BASSH_API=https://your-worker.workers.dev${NC}"
+    exit 1
+  fi
+
   if [[ -z "$PROJECT_NAME" ]]; then
     echo -e "${RED}Error: Project name required for delete. Use -n <name>${NC}"
     exit 1
@@ -825,6 +904,18 @@ if [[ -n "$CUSTOM_DOMAIN" ]]; then
     echo "  • example.com"
     exit 1
   fi
+fi
+
+# Check if worker URL is configured (for deployment)
+if [[ -z "$WORKER_URL" ]]; then
+  echo -e "${RED}Error: BASSH_API not configured${NC}"
+  echo ""
+  echo "Did you recently register? Try:"
+  echo -e "  ${CYAN}source ~/.zshrc${NC}  (or source ~/.bashrc)"
+  echo ""
+  echo "Or set it manually:"
+  echo -e "  ${CYAN}export BASSH_API=https://your-worker.workers.dev${NC}"
+  exit 1
 fi
 
 # Create temp directory for processing
