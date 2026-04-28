@@ -1043,7 +1043,11 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, X-Project-Name, X-Password, X-Emails, X-Domain, X-API-Key, X-Machine-ID, X-Custom-Domain, X-OTP-Emails',
+      // Sensitive params (password, otpEmails, emails) now travel in the request body
+      // for POST or as query string for GET/DELETE — never as headers (which get logged).
+      // Auth headers (X-API-Key, X-Machine-ID) and project-name fallback header remain
+      // for backward compatibility with older CLIs.
+      'Access-Control-Allow-Headers': 'Content-Type, X-API-Key, X-Machine-ID, X-Project-Name',
     };
 
     if (request.method === 'OPTIONS') {
@@ -1144,19 +1148,24 @@ export default {
 
 async function handleDeploy(request, env, corsHeaders, username) {
   try {
-    let projectName = request.headers.get('X-Project-Name') || `site-${Date.now().toString().slice(-6)}`;
-    const password = request.headers.get('X-Password') || '';
-    const emails = request.headers.get('X-Emails') || '';
-    const domain = request.headers.get('X-Domain') || '';
-    const customDomain = request.headers.get('X-Custom-Domain') || '';
-    const otpEmails = request.headers.get('X-OTP-Emails') || '';
+    // Parse JSON payload (files + deploy metadata).
+    // New CLIs put sensitive params in the body; old CLIs sent them as headers.
+    // Body wins; header is a fallback so old clients keep working during rollout.
+    const payload = await request.json();
+    const files = payload.files;
+
+    let projectName =
+      payload.projectName ||
+      request.headers.get('X-Project-Name') ||
+      `site-${Date.now().toString().slice(-6)}`;
+    const password     = payload.password     ?? request.headers.get('X-Password')      ?? '';
+    const emails       = payload.emails       ?? request.headers.get('X-Emails')        ?? '';
+    const domain       = payload.domain       ?? request.headers.get('X-Domain')        ?? '';
+    const customDomain = payload.customDomain ?? request.headers.get('X-Custom-Domain') ?? '';
+    const otpEmails    = payload.otpEmails    ?? request.headers.get('X-OTP-Emails')    ?? '';
 
     // Namespace project name with username
     const fullProjectName = `${username}-${projectName}`;
-
-    // Parse JSON payload with files
-    const payload = await request.json();
-    const files = payload.files;
 
     if (!files || files.length === 0) {
       return new Response(JSON.stringify({ error: 'No files provided' }), {
@@ -1944,10 +1953,11 @@ async function handleFormSubmit(request, env, corsHeaders, projectName) {
 // Handle form listing (authenticated)
 async function handleFormsList(request, env, corsHeaders, username) {
   try {
-    const projectName = request.headers.get('X-Project-Name');
+    const url = new URL(request.url);
+    const projectName = url.searchParams.get('project') || request.headers.get('X-Project-Name');
 
     if (!projectName) {
-      return new Response(JSON.stringify({ error: 'Project name required (X-Project-Name header)' }), {
+      return new Response(JSON.stringify({ error: 'Project name required (?project= query param)' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
@@ -2008,10 +2018,11 @@ async function handleFormsList(request, env, corsHeaders, username) {
 // Handle form deletion (authenticated)
 async function handleFormsDelete(request, env, corsHeaders, username) {
   try {
-    const projectName = request.headers.get('X-Project-Name');
+    const url = new URL(request.url);
+    const projectName = url.searchParams.get('project') || request.headers.get('X-Project-Name');
 
     if (!projectName) {
-      return new Response(JSON.stringify({ error: 'Project name required (X-Project-Name header)' }), {
+      return new Response(JSON.stringify({ error: 'Project name required (?project= query param)' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
@@ -2064,7 +2075,8 @@ async function handleFormsDelete(request, env, corsHeaders, username) {
 
 async function handleDelete(request, env, corsHeaders, username) {
   try {
-    let projectName = request.headers.get('X-Project-Name');
+    const url = new URL(request.url);
+    let projectName = url.searchParams.get('project') || request.headers.get('X-Project-Name');
 
     if (!projectName) {
       return new Response(JSON.stringify({ error: 'Project name required' }), {

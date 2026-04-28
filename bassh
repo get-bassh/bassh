@@ -505,10 +505,10 @@ if [[ "$FORMS_MODE" == true ]]; then
       exit 0
     fi
 
-    RESPONSE=$(curl -s -X DELETE "$WORKER_URL/forms" \
+    ENCODED_NAME=$(printf '%s' "$PROJECT_NAME" | python3 -c "import sys,urllib.parse; print(urllib.parse.quote(sys.stdin.read()))")
+    RESPONSE=$(curl -s -X DELETE "$WORKER_URL/forms?project=$ENCODED_NAME" \
       -H "X-Machine-ID: $MACHINE_ID" \
-      -H "X-API-Key: $API_KEY" \
-      -H "X-Project-Name: $PROJECT_NAME")
+      -H "X-API-Key: $API_KEY")
 
     if echo "$RESPONSE" | grep -q '"success":true'; then
       DELETED=$(echo "$RESPONSE" | grep -oE '"deleted":[0-9]+' | cut -d':' -f2)
@@ -522,10 +522,10 @@ if [[ "$FORMS_MODE" == true ]]; then
   fi
 
   # List forms
-  RESPONSE=$(curl -s -X GET "$WORKER_URL/forms" \
+  ENCODED_NAME=$(printf '%s' "$PROJECT_NAME" | python3 -c "import sys,urllib.parse; print(urllib.parse.quote(sys.stdin.read()))")
+  RESPONSE=$(curl -s -X GET "$WORKER_URL/forms?project=$ENCODED_NAME" \
     -H "X-Machine-ID: $MACHINE_ID" \
-    -H "X-API-Key: $API_KEY" \
-    -H "X-Project-Name: $PROJECT_NAME")
+    -H "X-API-Key: $API_KEY")
 
   if ! echo "$RESPONSE" | grep -q '"success":true'; then
     ERROR=$(echo "$RESPONSE" | grep -oE '"error":"[^"]+"' | cut -d'"' -f4)
@@ -809,11 +809,11 @@ if [[ "$DELETE_MODE" == true ]]; then
 
   echo -e "${BLUE}Deleting project: $PROJECT_NAME${NC}"
 
-  RESPONSE=$(curl -s -X DELETE "$WORKER_URL" \
+  ENCODED_NAME=$(printf '%s' "$PROJECT_NAME" | python3 -c "import sys,urllib.parse; print(urllib.parse.quote(sys.stdin.read()))")
+  RESPONSE=$(curl -s -X DELETE "$WORKER_URL/?project=$ENCODED_NAME" \
     -H "Content-Type: application/json" \
     -H "X-Machine-ID: $MACHINE_ID" \
-    -H "X-API-Key: $API_KEY" \
-    -H "X-Project-Name: $PROJECT_NAME")
+    -H "X-API-Key: $API_KEY")
 
   if echo "$RESPONSE" | grep -q '"success":true'; then
     echo -e "${GREEN}✓ Project '$PROJECT_NAME' deleted successfully${NC}"
@@ -947,11 +947,57 @@ echo -e "${BLUE}Packaging site...${NC}"
 
 cd "$DEPLOY_DIR"
 
-# Collect all files into an array
+# Collect all files into an array, excluding common junk and secret files.
+# Skips: VCS dirs, dependency dirs, OS metadata, env files, log files.
+# Honors a .basshignore file (gitignore-style, top-level) if present.
 FILES=()
+SKIPPED=0
+EXTRA_IGNORES=()
+if [[ -f ".basshignore" ]]; then
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    EXTRA_IGNORES+=("$line")
+  done < ".basshignore"
+fi
+
 while IFS= read -r -d '' file; do
+  rel="${file#./}"
+  base="$(basename "$rel")"
+  skip=0
+  case "/$rel/" in
+    */.git/*|*/.svn/*|*/.hg/*) skip=1 ;;
+    */node_modules/*|*/__pycache__/*|*/.venv/*|*/venv/*) skip=1 ;;
+  esac
+  if [[ $skip -eq 0 ]]; then
+    case "$base" in
+      .DS_Store|Thumbs.db|.env|.env.*|*.log|*.pem|*.key|id_rsa|id_ed25519) skip=1 ;;
+    esac
+  fi
+  if [[ $skip -eq 0 && ${#EXTRA_IGNORES[@]} -gt 0 ]]; then
+    for pat in "${EXTRA_IGNORES[@]}"; do
+      # shellcheck disable=SC2053
+      if [[ "$rel" == $pat || "$base" == $pat || "$rel" == */$pat || "$rel" == $pat/* ]]; then
+        skip=1
+        break
+      fi
+    done
+  fi
+  if [[ $skip -eq 1 ]]; then
+    SKIPPED=$((SKIPPED + 1))
+    continue
+  fi
   FILES+=("$file")
 done < <(find . -type f -print0)
+
+if [[ ${#FILES[@]} -eq 0 ]]; then
+  echo -e "${RED}Error: No deployable files found in '$DIR'${NC}"
+  echo "(Hidden files, .git, node_modules, .env, etc. are excluded by default.)"
+  exit 1
+fi
+
+if [[ $SKIPPED -gt 0 ]]; then
+  echo -e "${BLUE}Skipped $SKIPPED file(s) (VCS / deps / secrets).${NC}"
+fi
 
 # Build JSON
 echo -n '{"files":[' > "$JSON_FILE"
@@ -972,7 +1018,30 @@ for i in "${!FILES[@]}"; do
   printf '{"path":"%s","content":"%s"}' "$FILEPATH" "$CONTENT" >> "$JSON_FILE"
 done
 
-echo ']}' >> "$JSON_FILE"
+echo ']'  >> "$JSON_FILE"
+
+# JSON-escape a string for embedding as a value
+json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  printf '%s' "$s"
+}
+
+# Append deploy metadata to body (sensitive fields are sent in the body, not headers,
+# so they don't end up in proxy logs / Logpush).
+{
+  printf ',"projectName":"%s"'  "$(json_escape "$PROJECT_NAME")"
+  printf ',"password":"%s"'     "$(json_escape "$PASSWORD")"
+  printf ',"emails":"%s"'       "$(json_escape "$EMAILS")"
+  printf ',"domain":"%s"'       "$(json_escape "$DOMAIN")"
+  printf ',"customDomain":"%s"' "$(json_escape "$CUSTOM_DOMAIN")"
+  printf ',"otpEmails":"%s"'    "$(json_escape "$OTP_EMAILS")"
+  printf '}'
+} >> "$JSON_FILE"
 
 cd - > /dev/null
 
@@ -984,16 +1053,14 @@ RESPONSE=$(curl -s -X POST "$WORKER_URL" \
   -H "Content-Type: application/json" \
   -H "X-Machine-ID: $MACHINE_ID" \
   -H "X-API-Key: $API_KEY" \
-  -H "X-Project-Name: $PROJECT_NAME" \
-  -H "X-Password: $PASSWORD" \
-  -H "X-Emails: $EMAILS" \
-  -H "X-Domain: $DOMAIN" \
-  -H "X-Custom-Domain: $CUSTOM_DOMAIN" \
-  -H "X-OTP-Emails: $OTP_EMAILS" \
   --data-binary "@$JSON_FILE")
 
-# Cleanup
-rm -rf "$TEMP_DIR"
+# Cleanup (only after we have a response — keep payload around if curl failed)
+if [[ -n "$RESPONSE" ]]; then
+  rm -rf "$TEMP_DIR"
+else
+  echo -e "${YELLOW}Note: payload preserved at $JSON_FILE for debugging${NC}"
+fi
 
 # Parse response
 if echo "$RESPONSE" | grep -q '"success":true'; then
