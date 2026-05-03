@@ -54,14 +54,32 @@ fi
 echo -e "${GREEN}✓ Installed to $INSTALL_DIR/$SCRIPT_NAME${NC}"
 echo ""
 
-# Skip interactive prompts in CI environments
+# Detect non-interactive runs (CI or `curl … | bash`) so we skip prompts.
+NON_INTERACTIVE=false
 if [[ -n "$CI" || -n "$GITHUB_ACTIONS" || ! -t 0 ]]; then
-  echo -e "${BLUE}CI environment detected - skipping interactive setup${NC}"
+  NON_INTERACTIVE=true
+fi
+
+# Always make sure the install dir is on PATH — needed for both interactive
+# and piped installs. Without this, `curl … | bash` users see "command not
+# found" because their PATH update never gets written.
+if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+  if ! grep -q "export PATH=\"$INSTALL_DIR" "$SHELL_RC" 2>/dev/null; then
+    echo "" >> "$SHELL_RC"
+    echo "# bassh PATH" >> "$SHELL_RC"
+    echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$SHELL_RC"
+    echo -e "${GREEN}✓ Added $INSTALL_DIR to PATH in $SHELL_RC${NC}"
+  fi
+fi
+
+if [[ "$NON_INTERACTIVE" == true ]]; then
+  echo -e "${BLUE}Non-interactive install detected — skipping prompts.${NC}"
   echo -e "${GREEN}✓ Installation complete!${NC}"
   echo ""
-  echo -e "Set these environment variables to deploy:"
-  echo -e "  ${CYAN}BASSH_API${NC} - Your worker URL"
-  echo -e "  ${CYAN}BASSH_KEY${NC} - Your API key"
+  echo -e "Open a new terminal (or run: ${CYAN}source $SHELL_RC${NC}), then:"
+  echo -e "  ${CYAN}bassh register <your-username> --invite <subdomain:secret>${NC}"
+  echo ""
+  echo -e "If \`bassh\` still isn't found, run: ${CYAN}$INSTALL_DIR/bassh${NC} directly."
   exit 0
 fi
 
@@ -111,13 +129,6 @@ if ! grep -q "BASSH_KEY" "$SHELL_RC" 2>/dev/null; then
   fi
 else
   echo -e "${BLUE}BASSH_KEY already configured in $SHELL_RC${NC}"
-fi
-
-# Check if install dir is in PATH
-if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
-  echo "" >> "$SHELL_RC"
-  echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$SHELL_RC"
-  echo -e "${GREEN}✓ Added $INSTALL_DIR to PATH in $SHELL_RC${NC}"
 fi
 
 echo ""
