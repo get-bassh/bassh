@@ -16,7 +16,7 @@ import urllib.parse
 import urllib.request
 from typing import Any, Iterable
 
-API_BASE = "https://bassh.io"
+API_BASE = "https://connect.bassh.io"
 
 
 def _request(

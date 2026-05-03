@@ -4,15 +4,15 @@
 
 export const SKILL_MARKDOWN = `---
 name: bassh-deploy
-description: Deploy an HTML artifact to a private password- or magic-link-protected URL via bassh.io. Use when the user asks to deploy, share, host, preview, or publish HTML privately. Also handles listing and deleting their existing bassh projects. Requires a bassh API key (sk_…) which the user obtains by signing up at https://bassh.io.
+description: Deploy an HTML artifact to a private password- or magic-link-protected URL via bassh. Use when the user asks to deploy, share, host, preview, or publish HTML privately. Also handles listing and deleting their existing bassh projects. Requires a bassh API key (sk_…) which the user obtains by signing up at https://connect.bassh.io.
 ---
 
-# Deploy an artifact to bassh.io
+# Deploy an artifact via bassh
 
 This skill turns any HTML artifact, page, or static site into a private,
-shareable URL. The deploy backend is bassh.io (a Cloudflare Pages multi-tenant
-host). The user signs up once at https://bassh.io to get an API key (\`sk_…\`),
-then this skill handles the rest.
+shareable URL. The deploy backend is bassh (a Cloudflare Pages multi-tenant
+host). The user signs up once at https://connect.bassh.io to get an API key
+(\`sk_…\`), then this skill handles the rest.
 
 ## When to use
 
@@ -36,7 +36,7 @@ You need the user's bassh API key. Look in this order:
    (starts with \`sk_\`), reuse it. Don't ask again.
 3. **Ask the user**:
    \`\`\`
-   To deploy, I need your bassh API key. Get one at https://bassh.io
+   To deploy, I need your bassh API key. Get one at https://connect.bassh.io
    (free, takes ~30 seconds — just enter your email and click the
    verification link). Then paste the key here. It looks like sk_abc123…
    \`\`\`
@@ -91,8 +91,8 @@ print(result)
 \`\`\`
 
 \`deploy.py\` lives in this skill directory. It POSTs the right JSON to
-\`https://bassh.io/\` with the API key in the \`X-API-Key\` header and returns
-the parsed response.
+\`https://connect.bassh.io/\` with the API key in the \`X-API-Key\` header and
+returns the parsed response.
 
 ### 4. Report the result
 
@@ -112,7 +112,7 @@ If a custom domain was attached, also surface the CNAME instructions from
 \`result["customDomain"]\`.
 
 If deploy failed (\`success\` false): show the error verbatim. Common issues:
-- \`Invalid API key\` → ask user to double-check or rotate at bassh.io
+- \`Invalid API key\` → ask user to double-check or rotate at connect.bassh.io
 - \`Project name already taken\` → suggest a different one
 
 ## Other operations
