@@ -6,6 +6,7 @@ import { createMimeMessage } from "mimetext";
 import { landingPage } from "./templates/landing.js";
 import { dashboardPage } from "./templates/dashboard.js";
 import { SKILL_MARKDOWN } from "./templates/skill.js";
+import { handleMCP } from "./mcp.js";
 
 // ============================================================
 // AUTHENTICATION & USER MANAGEMENT
@@ -1243,6 +1244,19 @@ export default {
     // Route: GET /signup/verify - Verify magic link, create account, render dashboard
     if (path === '/signup/verify' && request.method === 'GET') {
       return handleSignupVerify(request, env, corsHeaders, url.host);
+    }
+
+    // Route: POST /mcp - MCP (Model Context Protocol) Streamable HTTP endpoint.
+    // Bearer-authenticated; lets Claude Cowork / Desktop call deploy/list/delete
+    // tools via Custom Connectors. Auth and dispatch live in src/mcp.js.
+    if (path === '/mcp') {
+      return handleMCP(request, env, {
+        getUserByKey,
+        handleDeploy,
+        handleList,
+        handleDelete,
+        handleFormsList,
+      });
     }
 
     // Route: GET /skill/bassh-deploy.md - Hosted skill markdown for Cowork install
