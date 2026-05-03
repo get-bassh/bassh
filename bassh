@@ -46,7 +46,20 @@ FORMS_COUNT=false
 CONFIG_DIR="$HOME/.bassh"
 MACHINE_ID_FILE="$CONFIG_DIR/machine-id"
 
+# Profile support: lets a single machine hold multiple bassh accounts
+# (e.g. one per family member). When --profile / BASSH_PROFILE is set, the
+# CLI reads credentials from $CONFIG_DIR/profiles/<name>/{key,api} and skips
+# the X-Machine-ID header so the worker authenticates by API key alone.
+PROFILE="${BASSH_PROFILE:-}"
+
 get_machine_id() {
+  # Profile mode: emit empty machine ID. The worker treats empty as "no
+  # machine binding" and falls through to API-key auth, which lets a
+  # second account live on the same physical machine.
+  if [[ "${PROFILE_MODE:-false}" == true ]]; then
+    return
+  fi
+
   # Create config directory if needed
   mkdir -p "$CONFIG_DIR"
 
@@ -91,6 +104,10 @@ while [[ $# -gt 0 ]]; do
         case $1 in
           --invite|-i)
             INVITE_CODE="$2"
+            shift 2
+            ;;
+          --profile)
+            PROFILE="$2"
             shift 2
             ;;
           -*)
@@ -169,6 +186,10 @@ while [[ $# -gt 0 ]]; do
       LIST_MODE=true
       shift
       ;;
+    --profile)
+      PROFILE="$2"
+      shift 2
+      ;;
     --help|-h)
       echo "bassh - Deploy a static site in one command"
       echo ""
@@ -229,9 +250,17 @@ while [[ $# -gt 0 ]]; do
       echo "  bassh forms -n my-project --count  # Show count only"
       echo "  bassh forms -n my-project --clear  # Delete all submissions"
       echo ""
+      echo "Profiles (multiple accounts on one machine):"
+      echo "  --profile <name>          Use a named profile (e.g., --profile wife)"
+      echo "  bassh register <user> --profile <name> --invite <code>"
+      echo "                            Register a second account without overwriting the default."
+      echo "  Profiles live in ~/.bassh/profiles/<name>/. Set BASSH_PROFILE=<name>"
+      echo "  in your shell to make a profile the default."
+      echo ""
       echo "Environment:"
-      echo "  BASSH_API    The deployment API URL (set automatically with invite code)"
-      echo "  BASSH_KEY    Your API key (saved automatically during registration)"
+      echo "  BASSH_API     The deployment API URL (set automatically with invite code)"
+      echo "  BASSH_KEY     Your API key (saved automatically during registration)"
+      echo "  BASSH_PROFILE Active profile name (alternative to --profile)"
       exit 0
       ;;
     *)
@@ -240,6 +269,38 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# ============================================================
+# Profile resolution
+# ============================================================
+# When a profile is active:
+#   - credentials come from $CONFIG_DIR/profiles/<name>/{key,api}
+#   - the X-Machine-ID header is sent empty so the worker falls through
+#     to API-key auth (otherwise this machine's existing account wins)
+#   - the shell env BASSH_KEY/BASSH_API are ignored
+PROFILE_DIR=""
+PROFILE_MODE=false
+if [[ -n "$PROFILE" ]]; then
+  if [[ ! "$PROFILE" =~ ^[a-z0-9_-]+$ ]]; then
+    echo -e "${RED}Error: Profile name must be lowercase letters, digits, dash, underscore${NC}"
+    exit 1
+  fi
+  PROFILE_DIR="$CONFIG_DIR/profiles/$PROFILE"
+  PROFILE_MODE=true
+  if [[ "$REGISTER_MODE" != true ]]; then
+    if [[ ! -f "$PROFILE_DIR/key" ]]; then
+      echo -e "${RED}Error: Profile '$PROFILE' not found${NC}"
+      echo ""
+      echo "Register it first:"
+      echo -e "  ${CYAN}bassh register <username> --profile $PROFILE --invite <code>${NC}"
+      exit 1
+    fi
+    API_KEY=$(cat "$PROFILE_DIR/key")
+    if [[ -f "$PROFILE_DIR/api" ]]; then
+      WORKER_URL=$(cat "$PROFILE_DIR/api")
+    fi
+  fi
+fi
 
 # Handle register mode (before URL check since invite code provides URL)
 if [[ "$REGISTER_MODE" == true ]]; then
@@ -304,32 +365,53 @@ if [[ "$REGISTER_MODE" == true ]]; then
   if echo "$RESPONSE" | grep -q '"success":true'; then
     API_KEY=$(echo "$RESPONSE" | grep -oE '"key":"[^"]+"' | cut -d'"' -f4)
 
-    # Determine shell config file
-    if [[ -f "$HOME/.zshrc" ]]; then
-      SHELL_RC="$HOME/.zshrc"
+    if [[ "$PROFILE_MODE" == true ]]; then
+      # Profile registration: save credentials to the profile dir, not ~/.zshrc.
+      # This keeps the default account (env vars) untouched.
+      mkdir -p "$PROFILE_DIR"
+      printf '%s' "$API_KEY" > "$PROFILE_DIR/key"
+      chmod 600 "$PROFILE_DIR/key"
+      printf '%s' "$WORKER_URL" > "$PROFILE_DIR/api"
+
+      echo ""
+      echo -e "${GREEN}✓ Registered as ${REGISTER_USERNAME} (profile: ${PROFILE})${NC}"
+      echo ""
+      echo -e "  Credentials saved to ${CYAN}$PROFILE_DIR${NC}"
+      echo ""
+      echo -e "  ${BLUE}Use this account:${NC}"
+      echo -e "    bassh --profile $PROFILE me"
+      echo -e "    bassh --profile $PROFILE ./my-folder -p secret"
+      echo ""
+      echo -e "  Or set ${CYAN}BASSH_PROFILE=$PROFILE${NC} in your shell to use it as default."
+      echo ""
     else
-      SHELL_RC="$HOME/.bashrc"
+      # Determine shell config file
+      if [[ -f "$HOME/.zshrc" ]]; then
+        SHELL_RC="$HOME/.zshrc"
+      else
+        SHELL_RC="$HOME/.bashrc"
+      fi
+
+      # Auto-save configuration
+      sed -i '' '/BASSH_KEY/d' "$SHELL_RC" 2>/dev/null || sed -i '/BASSH_KEY/d' "$SHELL_RC"
+      echo "export BASSH_KEY=\"$API_KEY\"" >> "$SHELL_RC"
+
+      # Also save URL if using invite code
+      if [[ -n "$INVITE_CODE" ]]; then
+        sed -i '' '/BASSH_API/d' "$SHELL_RC" 2>/dev/null || sed -i '/BASSH_API/d' "$SHELL_RC"
+        echo "export BASSH_API=\"$WORKER_URL\"" >> "$SHELL_RC"
+      fi
+
+      echo ""
+      echo -e "${GREEN}✓ Registered as ${REGISTER_USERNAME}${NC}"
+      echo ""
+      echo -e "  Configuration saved to ${CYAN}$SHELL_RC${NC}"
+      echo ""
+      echo -e "  ${BLUE}Ready to deploy:${NC}"
+      echo -e "    source $SHELL_RC"
+      echo -e "    bassh ./my-folder"
+      echo ""
     fi
-
-    # Auto-save configuration
-    sed -i '' '/BASSH_KEY/d' "$SHELL_RC" 2>/dev/null || sed -i '/BASSH_KEY/d' "$SHELL_RC"
-    echo "export BASSH_KEY=\"$API_KEY\"" >> "$SHELL_RC"
-
-    # Also save URL if using invite code
-    if [[ -n "$INVITE_CODE" ]]; then
-      sed -i '' '/BASSH_API/d' "$SHELL_RC" 2>/dev/null || sed -i '/BASSH_API/d' "$SHELL_RC"
-      echo "export BASSH_API=\"$WORKER_URL\"" >> "$SHELL_RC"
-    fi
-
-    echo ""
-    echo -e "${GREEN}✓ Registered as ${REGISTER_USERNAME}${NC}"
-    echo ""
-    echo -e "  Configuration saved to ${CYAN}$SHELL_RC${NC}"
-    echo ""
-    echo -e "  ${BLUE}Ready to deploy:${NC}"
-    echo -e "    source $SHELL_RC"
-    echo -e "    bassh ./my-folder"
-    echo ""
   else
     ERROR=$(echo "$RESPONSE" | grep -oE '"error":"[^"]+"' | cut -d'"' -f4)
     echo -e "${RED}Registration failed: $ERROR${NC}"
@@ -690,22 +772,28 @@ if [[ "$UNINSTALL_MODE" == true ]]; then
     echo -e "${GREEN}✓ Deleted $APPS_COUNT access app(s)${NC}"
     echo -e "${GREEN}✓ Deleted user account${NC}"
 
-    # Remove API key from shell config
-    if [[ -f "$HOME/.zshrc" ]]; then
-      SHELL_RC="$HOME/.zshrc"
+    if [[ "$PROFILE_MODE" == true ]]; then
+      # Profile uninstall: remove only the profile dir, leave the default
+      # account's machine-id and shell config alone.
+      rm -rf "$PROFILE_DIR"
+      echo -e "${GREEN}✓ Removed profile $PROFILE${NC}"
     else
-      SHELL_RC="$HOME/.bashrc"
-    fi
+      # Default uninstall: clear shell config and machine-id file.
+      if [[ -f "$HOME/.zshrc" ]]; then
+        SHELL_RC="$HOME/.zshrc"
+      else
+        SHELL_RC="$HOME/.bashrc"
+      fi
 
-    if grep -q "BASSH_KEY" "$SHELL_RC" 2>/dev/null; then
-      sed -i '' '/BASSH_KEY/d' "$SHELL_RC" 2>/dev/null || sed -i '/BASSH_KEY/d' "$SHELL_RC"
-      echo -e "${GREEN}✓ Removed API key from $SHELL_RC${NC}"
-    fi
+      if grep -q "BASSH_KEY" "$SHELL_RC" 2>/dev/null; then
+        sed -i '' '/BASSH_KEY/d' "$SHELL_RC" 2>/dev/null || sed -i '/BASSH_KEY/d' "$SHELL_RC"
+        echo -e "${GREEN}✓ Removed API key from $SHELL_RC${NC}"
+      fi
 
-    # Remove local machine ID
-    if [[ -f "$MACHINE_ID_FILE" ]]; then
-      rm -f "$MACHINE_ID_FILE"
-      echo -e "${GREEN}✓ Removed machine ID${NC}"
+      if [[ -f "$MACHINE_ID_FILE" ]]; then
+        rm -f "$MACHINE_ID_FILE"
+        echo -e "${GREEN}✓ Removed machine ID${NC}"
+      fi
     fi
     # Remove config directory if empty
     rmdir "$CONFIG_DIR" 2>/dev/null || true
