@@ -7,7 +7,9 @@ import { landingPage } from "./templates/landing.js";
 import { dashboardPage } from "./templates/dashboard.js";
 import { SKILL_MARKDOWN } from "./templates/skill.js";
 import { connectPage } from "./templates/connect.js";
+import { oauthErrorPage } from "./templates/oauth.js";
 import { handleMCP } from "./mcp.js";
+import { emailBody } from "./templates/design.js";
 import {
   handleOAuthDiscovery,
   handleOAuthAuthorize,
@@ -316,83 +318,78 @@ function getDecryptTemplate(encryptedData) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Protected Page</title>
+  <title>Protected — bassh</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inconsolata:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; }
+    :root {
+      --bg: #0a0a0a; --surface: #111111; --border: #222222;
+      --text: #e0e0e0; --text-dim: #666666;
+      --neon: #00ffd5; --neon-glow: rgba(0, 255, 213, 0.15);
+      --err: #ff5577;
+    }
+    html, body { margin: 0; padding: 0; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #f5f5f5;
+      font-family: 'Inconsolata', ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: var(--bg); color: var(--text);
+      line-height: 1.6; font-size: 16px;
       min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px;
     }
     .container {
-      background: white;
-      padding: 2.5rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 32px 28px;
       border-radius: 12px;
-      box-shadow: 0 4px 24px rgba(0,0,0,0.1);
-      max-width: 360px;
-      width: 90%;
-      opacity: 0;
-      transition: opacity 0.2s;
+      max-width: 380px; width: 100%;
+      opacity: 0; transition: opacity 0.2s;
     }
     .container.visible { opacity: 1; }
-    h1 {
-      font-size: 1.25rem;
-      font-weight: 600;
-      color: #1a1a1a;
-      margin-bottom: 0.5rem;
-    }
-    p {
-      color: #666;
-      font-size: 0.875rem;
-      margin-bottom: 1.5rem;
-    }
+    h1 { font-size: 20px; font-weight: 700; color: var(--text); margin: 0 0 6px; letter-spacing: -0.2px; }
+    p { color: var(--text-dim); font-size: 14px; margin: 0 0 20px; }
     input {
-      width: 100%;
-      padding: 0.75rem 1rem;
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      font-size: 1rem;
-      margin-bottom: 1rem;
-      transition: border-color 0.2s;
+      width: 100%; padding: 10px 12px;
+      background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+      font-family: inherit; font-size: 15px;
+      margin-bottom: 12px;
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
-    input:focus {
-      outline: none;
-      border-color: #0066ff;
-    }
+    input::placeholder { color: var(--text-dim); }
+    input:focus { outline: none; border-color: var(--neon); box-shadow: 0 0 0 3px var(--neon-glow); }
     button {
-      width: 100%;
-      padding: 0.75rem;
-      background: #0066ff;
-      color: white;
-      border: none;
-      border-radius: 8px;
-      font-size: 1rem;
-      font-weight: 500;
+      width: 100%; padding: 12px;
+      background: var(--neon); color: var(--bg);
+      border: 0; border-radius: 6px;
+      font-family: inherit; font-size: 14px; font-weight: 600;
       cursor: pointer;
-      transition: background 0.2s;
+      transition: box-shadow 0.2s, opacity 0.2s;
     }
-    button:hover { background: #0052cc; }
-    button:disabled { background: #ccc; cursor: not-allowed; }
+    button:hover { box-shadow: 0 0 20px var(--neon-glow); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
     .error {
-      color: #dc3545;
-      font-size: 0.875rem;
-      margin-top: 1rem;
-      display: none;
+      color: var(--err); font-size: 13px;
+      margin: 12px 0 0; display: none;
     }
     .icon {
-      width: 48px;
-      height: 48px;
-      background: #f0f0f0;
-      border-radius: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 1rem;
+      width: 44px; height: 44px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 16px;
     }
-    .icon svg { width: 24px; height: 24px; color: #666; }
+    .icon svg { width: 22px; height: 22px; color: var(--neon); }
+    .brand {
+      font-size: 11px; font-weight: 600;
+      color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: 1px;
+      margin-top: 24px; text-align: center;
+    }
+    .brand a { color: var(--text-dim); text-decoration: none; }
+    .brand a:hover { color: var(--neon); }
   </style>
 </head>
 <body>
@@ -402,13 +399,14 @@ function getDecryptTemplate(encryptedData) {
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
       </svg>
     </div>
-    <h1>Protected Page</h1>
+    <h1>Protected page</h1>
     <p>Enter the password to view this content.</p>
     <form id="form">
       <input type="password" id="password" placeholder="Password" autofocus required>
       <button type="submit" id="btn">Unlock</button>
     </form>
-    <p class="error" id="error">Incorrect password. Please try again.</p>
+    <p class="error" id="error">Incorrect password. Try again.</p>
+    <div class="brand"><a href="https://bassh.io" target="_blank">via bassh</a></div>
   </div>
 
   <script>
@@ -550,88 +548,76 @@ function getOTPDecryptTemplate(encryptedData, projectName, apiUrl, allowedEmails
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Protected Page</title>
+  <title>Protected — bassh</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inconsolata:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; }
+    :root {
+      --bg: #0a0a0a; --surface: #111111; --border: #222222;
+      --text: #e0e0e0; --text-dim: #666666;
+      --neon: #00ffd5; --neon-glow: rgba(0, 255, 213, 0.15);
+      --err: #ff5577; --ok: #00ffd5;
+    }
+    html, body { margin: 0; padding: 0; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #f5f5f5;
+      font-family: 'Inconsolata', ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: var(--bg); color: var(--text);
+      line-height: 1.6; font-size: 16px;
       min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px;
     }
     .container {
-      background: white;
-      padding: 2.5rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 32px 28px;
       border-radius: 12px;
-      box-shadow: 0 4px 24px rgba(0,0,0,0.1);
-      max-width: 360px;
-      width: 90%;
+      max-width: 380px; width: 100%;
       text-align: center;
     }
-    h1 {
-      font-size: 1.25rem;
-      font-weight: 600;
-      color: #1a1a1a;
-      margin-bottom: 0.5rem;
-    }
-    p {
-      color: #666;
-      font-size: 0.875rem;
-      margin-bottom: 1.5rem;
-    }
+    h1 { font-size: 20px; font-weight: 700; color: var(--text); margin: 0 0 6px; letter-spacing: -0.2px; }
+    p { color: var(--text-dim); font-size: 14px; margin: 0 0 20px; }
     input {
-      width: 100%;
-      padding: 0.75rem 1rem;
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      font-size: 1rem;
-      margin-bottom: 1rem;
-      transition: border-color 0.2s;
+      width: 100%; padding: 10px 12px;
+      background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+      font-family: inherit; font-size: 15px;
+      margin-bottom: 12px;
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
-    input:focus {
-      outline: none;
-      border-color: #0066ff;
-    }
+    input::placeholder { color: var(--text-dim); }
+    input:focus { outline: none; border-color: var(--neon); box-shadow: 0 0 0 3px var(--neon-glow); }
     button {
-      width: 100%;
-      padding: 0.75rem;
-      background: #0066ff;
-      color: white;
-      border: none;
-      border-radius: 8px;
-      font-size: 1rem;
-      font-weight: 500;
+      width: 100%; padding: 12px;
+      background: var(--neon); color: var(--bg);
+      border: 0; border-radius: 6px;
+      font-family: inherit; font-size: 14px; font-weight: 600;
       cursor: pointer;
-      transition: background 0.2s;
+      transition: box-shadow 0.2s, opacity 0.2s;
     }
-    button:hover { background: #0052cc; }
-    button:disabled { background: #ccc; cursor: not-allowed; }
-    .error {
-      color: #dc3545;
-      font-size: 0.875rem;
-      margin-top: 1rem;
-      display: none;
-    }
-    .success {
-      color: #22c55e;
-      font-size: 0.875rem;
-      margin-top: 1rem;
-      display: none;
-    }
+    button:hover { box-shadow: 0 0 20px var(--neon-glow); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+    .error { color: var(--err); font-size: 13px; margin: 12px 0 0; display: none; }
+    .success { color: var(--ok); font-size: 13px; margin: 12px 0 0; display: none; }
     .icon {
-      width: 48px;
-      height: 48px;
-      background: #f0f0f0;
-      border-radius: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin: 0 auto 1rem;
+      width: 44px; height: 44px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 16px;
     }
-    .icon svg { width: 24px; height: 24px; color: #666; }
+    .icon svg { width: 22px; height: 22px; color: var(--neon); }
     .hidden { display: none; }
+    .brand {
+      font-size: 11px; font-weight: 600;
+      color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: 1px;
+      margin-top: 24px;
+    }
+    .brand a { color: var(--text-dim); text-decoration: none; }
+    .brand a:hover { color: var(--neon); }
   </style>
 </head>
 <body>
@@ -641,14 +627,15 @@ function getOTPDecryptTemplate(encryptedData, projectName, apiUrl, allowedEmails
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
       </svg>
     </div>
-    <h1>Protected Page</h1>
+    <h1>Protected page</h1>
     <p>Enter your email to receive an access link.</p>
     <form id="form">
       <input type="email" id="email" placeholder="Email address" autofocus required>
-      <button type="submit" id="btn">Send Access Link</button>
+      <button type="submit" id="btn">Send access link</button>
     </form>
     <p class="error" id="error"></p>
     <p class="success" id="success">Check your inbox for the access link.</p>
+    <div class="brand"><a href="https://bassh.io" target="_blank">via bassh</a></div>
   </div>
 
   <div class="container hidden" id="verifying">
@@ -657,9 +644,10 @@ function getOTPDecryptTemplate(encryptedData, projectName, apiUrl, allowedEmails
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
       </svg>
     </div>
-    <h1>Verifying...</h1>
+    <h1>Verifying…</h1>
     <p>Please wait while we verify your access.</p>
     <p class="error" id="verifyError"></p>
+    <div class="brand"><a href="https://bassh.io" target="_blank">via bassh</a></div>
   </div>
 
   <script>
@@ -956,15 +944,12 @@ async function handleOTPRequest(request, env, corsHeaders) {
         body: JSON.stringify({
           from: `bassh <${senderEmail}>`,
           to: [email],
-          subject: 'Your Access Link',
-          html: `
-            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px;">
-              <h2 style="color: #1a1a1a; margin-bottom: 16px;">Access Requested</h2>
-              <p style="color: #666; line-height: 1.6;">Click the button below to access the protected page. This link expires in 3 hours.</p>
-              <a href="${magicLink}" style="display: inline-block; background: #0066ff; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500; margin: 20px 0;">Open Page</a>
-              <p style="color: #999; font-size: 14px;">If you didn't request this, you can ignore this email.</p>
-            </div>
-          `
+          subject: 'Your access link',
+          html: emailBody({
+            headline: 'Access requested',
+            bodyHtml: `<p>Click the button below to open the protected page. This link expires in 3 hours and can only be used once.</p>`,
+            cta: { href: magicLink, label: 'Open page' }
+          })
         })
       });
 
@@ -1122,14 +1107,11 @@ async function handleSignupRequest(request, env, corsHeaders, origin) {
         from: `bassh <${senderEmail}>`,
         to: [email],
         subject: 'Verify your bassh account',
-        html: `
-          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px;">
-            <h2 style="color: #1a1a1a; margin-bottom: 16px;">Welcome to bassh</h2>
-            <p style="color: #666; line-height: 1.6;">Click the button below to finish creating your account. This link expires in 1 hour and can only be used once.</p>
-            <a href="${verifyLink}" style="display: inline-block; background: #0066ff; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500; margin: 20px 0;">Verify email</a>
-            <p style="color: #999; font-size: 14px;">If you didn't request this, you can safely ignore this email.</p>
-          </div>
-        `
+        html: emailBody({
+          headline: 'Welcome to bassh',
+          bodyHtml: `<p>Click the button below to finish creating your account. This link expires in 1 hour and can only be used once.</p>`,
+          cta: { href: verifyLink, label: 'Verify email' }
+        })
       })
     });
     if (!resendResponse.ok) {
@@ -1154,14 +1136,14 @@ async function handleSignupRequest(request, env, corsHeaders, origin) {
 async function handleSignupVerify(request, env, corsHeaders, host) {
   const url = new URL(request.url);
   const token = url.searchParams.get('token');
+  const htmlHeaders = { ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8' };
+  const errorPage = (msg) => new Response(oauthErrorPage(msg), { status: 400, headers: htmlHeaders });
   if (!token) {
-    return new Response('Missing token.', { status: 400, headers: corsHeaders });
+    return errorPage('Missing token. Open the link from your email.');
   }
   const data = await env.USERS.get(`signup:${token}`, 'json');
   if (!data) {
-    return new Response('This verification link is invalid or has expired. Request a new one at https://bassh.io.', {
-      status: 400, headers: corsHeaders
-    });
+    return errorPage('This verification link is invalid or has expired. Request a new one from the home page.');
   }
   // One-time use
   await env.USERS.delete(`signup:${token}`);
@@ -1169,8 +1151,8 @@ async function handleSignupVerify(request, env, corsHeaders, host) {
   const email = data.email;
   const username = await deriveUsername(env, email);
   if (!username) {
-    return new Response('Could not derive a username from your email. Please try a different address or contact support.', {
-      status: 500, headers: corsHeaders
+    return new Response(oauthErrorPage('Could not derive a username from your email. Please try a different address.'), {
+      status: 500, headers: htmlHeaders
     });
   }
   const apiKey = await createUser(env, username, /* machineId */ '');
