@@ -1,426 +1,226 @@
-# Deploy Artifact Skill
+---
+name: deploy-artifact
+description: Deploy HTML, artifacts, or static sites to a password- or magic-link-protected URL using the bassh CLI. Use when the user asks to "deploy", "share", "host", or "preview" HTML/static content privately, or to manage existing bassh projects (list, delete, view forms).
+---
 
-Deploy HTML artifacts to a password-protected URL using bassh.
+# Deploy Artifact (bassh)
 
-**Important:** This skill only works in Claude Code (the CLI tool). It does not work in Claude.ai web or Claude Desktop without shell access.
+Deploy HTML or a static-site directory to a private URL via the `bassh` CLI. Works only in Claude Code (or any environment with shell access). Does not work in Claude.ai web.
 
-## When to Use
+## When to use
 
-Use this skill when the user asks to:
-- Deploy an HTML artifact
-- Share an HTML page privately
-- Create a password-protected preview
-- Host HTML content temporarily
+- "Deploy this HTML / artifact / page"
+- "Share this privately / behind a password / behind email login"
+- "Put this online for me to preview"
+- "List / delete my bassh projects"
+- "Show form submissions for project X"
 
-## Workflow
+If the user is on Claude.ai web (no shell), say so and stop.
 
-### Step 1: Check if bassh CLI is installed
+## Quick decision tree
 
-Run:
+1. Is `bassh` installed? → if no, give install command, stop.
+2. Is the user logged in (`bassh me`)? → if no, walk through registration with an invite code.
+3. What protection? → password (`-p`), email magic link (`-o`), Cloudflare Access (`-e` / `-d`), or none. Default to password for ad-hoc artifacts.
+4. Build the directory, run `bassh`, report the URL.
+
+## Step 1 — Verify CLI installed
+
 ```bash
-which bassh
+command -v bassh >/dev/null && bassh --help >/dev/null
 ```
 
-**If not found**, tell the user:
-```
-bassh CLI is not installed.
+If `bassh` is missing, tell the user:
 
-Install it with:
-  curl -fsSL https://raw.githubusercontent.com/get-bassh/bassh/main/install.sh | bash
-  source ~/.zshrc
+> `bassh` isn't installed. Install with:
+> ```
+> curl -fsSL https://raw.githubusercontent.com/get-bassh/bassh/main/install.sh | bash
+> source ~/.zshrc   # or ~/.bashrc
+> ```
+> Then ask me to deploy again.
 
-Then ask me to deploy again.
-```
-Stop here until user installs.
+Stop until they confirm.
 
-### Step 2: Check if user is registered
+## Step 2 — Verify logged in
 
-Run:
-```bash
-bassh me 2>&1
-```
-
-**If output contains "Logged in as"**, proceed to Step 3.
-
-**If output contains "Not logged in" or error**, the user needs to register:
-
-Ask the user:
-```
-You're not registered with bassh yet.
-
-Do you have an invite code? It looks like: subdomain:secret123
-
-If yes, tell me your invite code and desired username.
-If no, contact your bassh operator to get one.
-```
-
-Wait for user response.
-
-**When user provides invite code and username**, run:
-```bash
-bassh register USERNAME --invite INVITE_CODE
-```
-
-Check output:
-- If "Registered as USERNAME" → proceed to Step 3
-- If "Invalid invite code" → ask user to check the code
-- If "Username already taken" → ask for different username
-- If "machine already registered" → tell user this computer already has an account, run `bassh me` to see it
-
-### Step 3: Prepare the HTML content
-
-Determine what HTML to deploy:
-- If user provided HTML content, use that
-- If user refers to a previous artifact, use that HTML
-- If user refers to a file, read that file
-
-**If no HTML content can be determined**, ask:
-```
-What HTML would you like to deploy? You can:
-- Paste the HTML directly
-- Tell me which artifact from our conversation
-- Provide a file path
-```
-
-### Step 4: Ask for deployment options
-
-Ask the user:
-```
-Ready to deploy. Options:
-
-Protection:
-  • Password (-p): Anyone with password can access
-  • Email magic link (-o): Only listed emails can access (receives link via email)
-
-Project name: (optional, auto-generated if not provided)
-Custom domain: (optional, e.g., docs.example.com)
-
-How would you like to protect this? Password or email addresses?
-```
-
-**If user provides a project name**, validate it first:
-- 1-58 characters long
-- Lowercase letters, numbers, and dashes only
-- Cannot start or end with a dash
-
-**If invalid**, tell the user:
-```
-Invalid project name. Names must be:
-• 1-58 characters long
-• Lowercase letters, numbers, and dashes only
-• Cannot start or end with a dash
-
-Example: my-project-123
-```
-
-**If user says "generate" or similar for password**, generate a random password:
-```bash
-openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 12
-```
-
-### Step 5: Deploy
-
-Create temp directory and write HTML:
-```bash
-DEPLOY_DIR=$(mktemp -d)
-cat > "$DEPLOY_DIR/index.html" << 'HTMLEOF'
-[HTML CONTENT HERE]
-HTMLEOF
-```
-
-**With password protection:**
-```bash
-bassh "$DEPLOY_DIR" -p "PASSWORD" -n "PROJECT_NAME"
-```
-
-**With email magic link:**
-```bash
-bassh "$DEPLOY_DIR" -o "alice@gmail.com,bob@company.com" -n "PROJECT_NAME"
-```
-
-**With domain-based email access:**
-```bash
-bassh "$DEPLOY_DIR" -o "@company.com" -n "PROJECT_NAME"
-```
-
-**With custom domain:**
-```bash
-bassh "$DEPLOY_DIR" -p "PASSWORD" -n "PROJECT_NAME" --custom-domain "CUSTOM_DOMAIN"
-```
-
-Clean up:
-```bash
-rm -rf "$DEPLOY_DIR"
-```
-
-### Step 6: Report result
-
-**If deployment succeeded** (output contains "Site deployed successfully"):
-
-Extract the URL from output and tell the user:
-
-**For password protection:**
-```
-Deployed successfully!
-
-URL: [extracted URL]
-Password: [the password used]
-
-Share the URL and password separately for security.
-```
-
-**For email magic link:**
-```
-Deployed successfully!
-
-URL: [extracted URL]
-Allowed emails: [the emails/domains]
-
-Only these emails can request a magic link to access.
-```
-
-**If custom domain was used**, also include the DNS instructions shown in the output:
-```
-Custom domain: docs.example.com
-
-Add this DNS record at your domain provider:
-  Type:  CNAME
-  Name:  docs
-  Value: username-project.pages.dev
-
-Once configured, https://docs.example.com will be live.
-```
-
-**If deployment failed**, check the error:
-- "not logged in" → go back to Step 2
-- "Invalid API key" → tell user to re-register or run `bassh key --regenerate`
-- Network error → ask user to check internet connection
-- Other error → show the error and suggest running `bassh me` to verify setup
-
-## Error Recovery
-
-### "command not found: bassh"
-CLI not installed. Guide user through installation.
-
-### "Not logged in" or auth errors
-Registration issue. Guide user through registration with invite code.
-
-### "Invalid invite code"
-User provided wrong code. Ask them to verify with their operator.
-
-### "Username already taken"
-Ask for a different username.
-
-### "This machine is already registered"
-Computer has existing account. Run `bassh me` to see current user.
-If user wants different account, they must run `bassh uninstall` first.
-
-### Deployment returns no URL
-Unexpected error. Show full output and suggest:
-1. Check `bassh me` works
-2. Try `bassh -l` to list projects
-3. Check internet connection
-
-## Example Conversation
-
-**User:** Deploy this HTML with password "demo123"
-```html
-<html><body><h1>Hello World</h1></body></html>
-```
-
-**Assistant:**
-1. Checks `bassh me` → user is logged in
-2. Creates temp dir, writes HTML
-3. Runs `bassh /tmp/xxx -p demo123`
-4. Reports:
-   ```
-   Deployed successfully!
-
-   URL: https://bob-demo-site-12345.pages.dev
-   Password: demo123
-   ```
-
-## Notes
-
-- Always use password protection for artifacts (the whole point is private sharing)
-- Clean up temp directories after deployment
-- Never log or display the user's invite code after registration
-- The URL is public but content is encrypted - password required to view
-
-## Forms (Optional)
-
-If the user wants to collect form submissions from their deployed site, you can add a form that posts to the bassh API.
-
-### Adding a Form
-
-First, get the user's info:
 ```bash
 bassh me
 ```
 
-Output shows:
+- Output contains `Logged in as:` → proceed.
+- Output contains `Not authenticated` or `BASSH_API not configured` → user needs to register.
+
+If they need an invite code, ask:
+
+> You're not registered. Do you have an invite code? It looks like `subdomain:secret123`. If yes, share the code and your desired username. If no, ask your bassh operator for one.
+
+When they provide both, run:
+
+```bash
+bassh register USERNAME --invite SUBDOMAIN:SECRET
 ```
-Logged in as: username
-API: https://bassh-api.yourname.workers.dev
-Domain: username-{project}.pages.dev
+
+Common errors:
+- `Invalid invite code format` → must be `subdomain:secret`, not just the secret.
+- `Invalid registration code` → wrong secret; ask operator.
+- `Username already taken` → ask for a different one.
+- `This machine is already registered` → run `bassh me` to see the existing account; `bassh uninstall` to reset.
+
+After successful register, the CLI writes `BASSH_KEY` / `BASSH_API` to the user's shell rc. They may need to `source ~/.zshrc` (or open a new shell) before deploys work.
+
+## Step 3 — Determine what to deploy
+
+Pick the source:
+- **Inline HTML in the message** → use it as the entire site.
+- **Reference to an artifact / previous code block** → use that HTML.
+- **Existing directory or file path** → deploy as-is. If it's a single `.html` file, copy it into a temp dir as `index.html`.
+- **Nothing clear** → ask:
+
+> What should I deploy? Paste HTML, name an artifact, or give me a directory path.
+
+`bassh` deploys a *directory*. The site root is whatever you pass; `index.html` should exist in it.
+
+## Step 4 — Choose protection
+
+Ask succinctly only if the user hasn't already said:
+
+> Protection: password (`-p`), email magic link (`-o`), or none?
+> Project name? (optional, auto-generated)
+> Custom domain? (optional)
+
+Validation:
+- **Project name** must match `^[a-z0-9-]{1,58}$` and not start/end with `-`. If invalid, show the rules and ask again.
+- **Custom domain** must look like a real DNS name (e.g., `docs.example.com`).
+- **Random password**: `openssl rand -base64 18 | tr -dc 'a-zA-Z0-9' | head -c 16`.
+
+Default for ad-hoc artifact sharing: generate a random password.
+
+## Step 5 — Build the directory and deploy
+
+**Prefer the Write tool over heredocs** to create `index.html`. Heredocs break on HTML containing the EOF marker, backticks, or `$` substitutions, and silently corrupt content.
+
+```bash
+DEPLOY_DIR=$(mktemp -d)
+trap 'rm -rf "$DEPLOY_DIR"' EXIT
 ```
 
-Use this info to construct the form:
+Then use the Write tool to create `$DEPLOY_DIR/index.html` (and any other files) with the literal content. After files are written, deploy:
 
-**Form action URL:** `{API}/form/{PROJECT_NAME}`
+```bash
+# Password
+bassh "$DEPLOY_DIR" -p "$PASSWORD" -n "$PROJECT_NAME"
 
-**Redirect URL after submission:**
-- If custom domain used: `https://{custom-domain}/thanks.html`
-- If no custom domain: `https://{username}-{project}.pages.dev/thanks.html`
+# Email magic link (specific addresses or whole domain)
+bassh "$DEPLOY_DIR" -o "alice@x.com,bob@y.com" -n "$PROJECT_NAME"
+bassh "$DEPLOY_DIR" -o "@company.com"          -n "$PROJECT_NAME"
 
-### Example Form HTML
+# Cloudflare Access (heavier — requires Cloudflare login)
+bassh "$DEPLOY_DIR" -e "alice@x.com" -n "$PROJECT_NAME"
+bassh "$DEPLOY_DIR" -d "@company.com" -n "$PROJECT_NAME"
+
+# Custom domain (combine with any protection flag)
+bassh "$DEPLOY_DIR" -p "$PASSWORD" -n "$PROJECT_NAME" --custom-domain docs.example.com
+
+# No protection (public)
+bassh "$DEPLOY_DIR" -n "$PROJECT_NAME"
+```
+
+Project name is optional — bassh auto-generates one. Pass `-n` only if the user named it or wants a stable URL.
+
+## Step 6 — Report the result
+
+Successful output contains `✓ Site deployed successfully!` followed by `URL:` and `Project:` lines. Extract the URL and report:
+
+**Password:**
+```
+Deployed.
+
+URL:      <url>
+Password: <password>
+
+Share the URL and password through different channels.
+```
+
+**Magic link:**
+```
+Deployed.
+
+URL: <url>
+Allowed: <emails-or-domain>
+
+Visitors enter their email and receive a one-time link.
+```
+
+**Custom domain:** also surface the CNAME record from the CLI output (it prints DNS instructions block). Don't paraphrase — show the exact `Type / Name / Value` lines as the CLI emitted them.
+
+If `Deployment failed` appears, show the response body and:
+- `Invalid API key` → `bassh key --regenerate`
+- `BASSH_API not configured` → `source ~/.zshrc`
+- Network error → check connectivity, retry once.
+
+## Other operations
+
+```bash
+bassh -l                       # list projects
+bassh -D -n my-project         # delete a project
+bassh me                       # current user / API URL / domain
+bassh key                      # show API key
+bassh key --regenerate         # rotate API key
+bassh uninstall                # delete account, all sites, and CLI
+```
+
+For destructive actions (`-D`, `uninstall`, `key --regenerate`), confirm with the user before running.
+
+---
+
+## Forms (optional)
+
+If the user wants their deployed site to capture form submissions, post to `{API}/form/{PROJECT_NAME}` where `{API}` is the `API:` value from `bassh me`.
+
+**Resolve the API URL programmatically — never hardcode `bassh-api.yourname.workers.dev`.**
+
+```bash
+API_URL=$(bassh me | awk '/^API:/ {print $2}')
+USERNAME=$(bassh me | awk '/^Logged in as:/ {print $NF}')
+```
+
+Then build the form:
 
 ```html
-<form action="https://bassh-api.yourname.workers.dev/form/my-project" method="POST">
-  <input type="hidden" name="_redirect" value="https://username-my-project.pages.dev/thanks.html">
-  <input type="hidden" name="_honeypot" value="" style="display:none">
+<form action="API_URL/form/PROJECT_NAME" method="POST">
+  <!-- spam honeypot — must stay empty -->
+  <input type="text" name="_honeypot" style="display:none" tabindex="-1" autocomplete="off">
+  <!-- where to redirect after submit -->
+  <input type="hidden" name="_redirect" value="https://USERNAME-PROJECT_NAME.pages.dev/thanks.html">
 
-  <input type="text" name="name" required>
+  <input type="text"  name="name"  required>
   <input type="email" name="email" required>
   <textarea name="message"></textarea>
   <button type="submit">Send</button>
 </form>
 ```
 
-**With custom domain:**
-```html
-<form action="https://bassh-api.yourname.workers.dev/form/my-project" method="POST">
-  <input type="hidden" name="_redirect" value="https://docs.example.com/thanks.html">
-  ...
-</form>
-```
+Always include a `thanks.html` in the same deploy so the redirect lands somewhere.
 
-### Creating a Thank You Page
-
-When deploying a site with a form, include a `thanks.html` file:
-```html
-<!DOCTYPE html>
-<html>
-<head><title>Thank You</title></head>
-<body>
-  <h1>Thank you!</h1>
-  <p>Your submission has been received.</p>
-  <a href="/">Back to home</a>
-</body>
-</html>
-```
-
-### Viewing Submissions
+View submissions:
 
 ```bash
-# Human-readable list
-bassh forms -n my-project
-
-# Export as CSV
-bassh forms -n my-project --csv
-
-# Export as JSON
-bassh forms -n my-project --json
-
-# Count only
-bassh forms -n my-project --count
-
-# Clear all
-bassh forms -n my-project --clear
+bassh forms -n PROJECT_NAME           # list
+bassh forms -n PROJECT_NAME --csv     # CSV export
+bassh forms -n PROJECT_NAME --json    # JSON export
+bassh forms -n PROJECT_NAME --count   # count only
+bassh forms -n PROJECT_NAME --clear   # delete all (confirm first)
 ```
 
-### Limits
-
-- 10 submissions/minute per IP
-- 10KB max payload
-- 90-day retention
+Limits: 10 submissions/min/IP, 10 KB payload, 90-day retention.
 
 ---
 
-## Operator Setup
+## Notes for Claude
 
-Use this section when a user wants to run their own bassh infrastructure on Cloudflare.
-
-### Prerequisites
-
-- Node.js installed
-- Cloudflare account (free tier works)
-- Cloudflare API Token with permissions:
-  - **Account** > Cloudflare Pages > Edit
-  - **Account** > Access: Apps and Policies > Edit
-
-### Step 1: Clone and Setup
-
-```bash
-git clone https://github.com/get-bassh/bassh.git
-cd bassh
-./setup.sh
-```
-
-The setup script will interactively:
-1. Log in to Cloudflare (if needed)
-2. Create KV namespaces (USERS, FORMS)
-3. Update wrangler.toml with namespace IDs
-4. Prompt for secrets:
-   - `CF_ACCOUNT_ID` (auto-detected)
-   - `CF_API_TOKEN` (user provides)
-   - `REGISTRATION_CODE` (optional, for invite-only mode)
-   - `EMAIL_FROM` (optional, for magic link feature)
-5. Deploy the worker
-6. Display the invite code
-
-### Step 2: Get Invite Code
-
-After setup completes, the script displays:
-```
-Your worker URL:
-  https://bassh-api.yoursubdomain.workers.dev
-
-Your invite code:
-  yoursubdomain:yoursecret
-```
-
-### Step 3: Share with Users
-
-Tell users to register with:
-```bash
-curl -fsSL https://raw.githubusercontent.com/get-bassh/bassh/main/install.sh | bash
-source ~/.zshrc
-bassh register USERNAME --invite yoursubdomain:yoursecret
-```
-
-### Optional: Email Magic Links
-
-To enable the `-o` flag for email magic links:
-
-1. Domain must have nameservers pointing to Cloudflare
-2. Enable Email Routing: Domain → Email → Email Routing → Enable
-3. Set `EMAIL_FROM` secret during setup (e.g., `access@yourdomain.com`)
-
-If not configured, users can still use `-p` (password) protection.
-
-### Operator Commands
-
-```bash
-# Redeploy after changes
-npx wrangler deploy
-
-# View logs
-npx wrangler tail
-
-# Update a secret
-npx wrangler secret put SECRET_NAME
-
-# List KV namespaces
-npx wrangler kv namespace list
-```
-
-### Costs
-
-All on Cloudflare free tier:
-- Workers: 100k requests/day
-- Pages: unlimited sites, 500 builds/month
-- Access: 50 users
-- KV: 100k reads/day, 1k writes/day
-
-**$0/month** for small teams.
+- Don't echo the user's invite code or API key back after registration — just confirm success.
+- Always clean up `$DEPLOY_DIR` (the `trap` above handles it).
+- If the user hasn't asked for protection, default to a random password for ad-hoc HTML — the point of bassh is private sharing.
+- The deploy URL is public; the password/magic-link gate is what keeps content private.
+- For multi-file deploys, write each file with the Write tool into `$DEPLOY_DIR` before invoking `bassh`.
+- Operator setup (running their own bassh worker on Cloudflare) lives in the project README — link there rather than walking through it inline.

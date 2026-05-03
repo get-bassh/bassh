@@ -46,7 +46,20 @@ FORMS_COUNT=false
 CONFIG_DIR="$HOME/.bassh"
 MACHINE_ID_FILE="$CONFIG_DIR/machine-id"
 
+# Profile support: lets a single machine hold multiple bassh accounts
+# (e.g. one per family member). When --profile / BASSH_PROFILE is set, the
+# CLI reads credentials from $CONFIG_DIR/profiles/<name>/{key,api} and skips
+# the X-Machine-ID header so the worker authenticates by API key alone.
+PROFILE="${BASSH_PROFILE:-}"
+
 get_machine_id() {
+  # Profile mode: emit empty machine ID. The worker treats empty as "no
+  # machine binding" and falls through to API-key auth, which lets a
+  # second account live on the same physical machine.
+  if [[ "${PROFILE_MODE:-false}" == true ]]; then
+    return
+  fi
+
   # Create config directory if needed
   mkdir -p "$CONFIG_DIR"
 
@@ -91,6 +104,10 @@ while [[ $# -gt 0 ]]; do
         case $1 in
           --invite|-i)
             INVITE_CODE="$2"
+            shift 2
+            ;;
+          --profile)
+            PROFILE="$2"
             shift 2
             ;;
           -*)
@@ -169,6 +186,10 @@ while [[ $# -gt 0 ]]; do
       LIST_MODE=true
       shift
       ;;
+    --profile)
+      PROFILE="$2"
+      shift 2
+      ;;
     --help|-h)
       echo "bassh - Deploy a static site in one command"
       echo ""
@@ -229,9 +250,17 @@ while [[ $# -gt 0 ]]; do
       echo "  bassh forms -n my-project --count  # Show count only"
       echo "  bassh forms -n my-project --clear  # Delete all submissions"
       echo ""
+      echo "Profiles (multiple accounts on one machine):"
+      echo "  --profile <name>          Use a named profile (e.g., --profile wife)"
+      echo "  bassh register <user> --profile <name> --invite <code>"
+      echo "                            Register a second account without overwriting the default."
+      echo "  Profiles live in ~/.bassh/profiles/<name>/. Set BASSH_PROFILE=<name>"
+      echo "  in your shell to make a profile the default."
+      echo ""
       echo "Environment:"
-      echo "  BASSH_API    The deployment API URL (set automatically with invite code)"
-      echo "  BASSH_KEY    Your API key (saved automatically during registration)"
+      echo "  BASSH_API     The deployment API URL (set automatically with invite code)"
+      echo "  BASSH_KEY     Your API key (saved automatically during registration)"
+      echo "  BASSH_PROFILE Active profile name (alternative to --profile)"
       exit 0
       ;;
     *)
@@ -240,6 +269,38 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# ============================================================
+# Profile resolution
+# ============================================================
+# When a profile is active:
+#   - credentials come from $CONFIG_DIR/profiles/<name>/{key,api}
+#   - the X-Machine-ID header is sent empty so the worker falls through
+#     to API-key auth (otherwise this machine's existing account wins)
+#   - the shell env BASSH_KEY/BASSH_API are ignored
+PROFILE_DIR=""
+PROFILE_MODE=false
+if [[ -n "$PROFILE" ]]; then
+  if [[ ! "$PROFILE" =~ ^[a-z0-9_-]+$ ]]; then
+    echo -e "${RED}Error: Profile name must be lowercase letters, digits, dash, underscore${NC}"
+    exit 1
+  fi
+  PROFILE_DIR="$CONFIG_DIR/profiles/$PROFILE"
+  PROFILE_MODE=true
+  if [[ "$REGISTER_MODE" != true ]]; then
+    if [[ ! -f "$PROFILE_DIR/key" ]]; then
+      echo -e "${RED}Error: Profile '$PROFILE' not found${NC}"
+      echo ""
+      echo "Register it first:"
+      echo -e "  ${CYAN}bassh register <username> --profile $PROFILE --invite <code>${NC}"
+      exit 1
+    fi
+    API_KEY=$(cat "$PROFILE_DIR/key")
+    if [[ -f "$PROFILE_DIR/api" ]]; then
+      WORKER_URL=$(cat "$PROFILE_DIR/api")
+    fi
+  fi
+fi
 
 # Handle register mode (before URL check since invite code provides URL)
 if [[ "$REGISTER_MODE" == true ]]; then
@@ -304,32 +365,53 @@ if [[ "$REGISTER_MODE" == true ]]; then
   if echo "$RESPONSE" | grep -q '"success":true'; then
     API_KEY=$(echo "$RESPONSE" | grep -oE '"key":"[^"]+"' | cut -d'"' -f4)
 
-    # Determine shell config file
-    if [[ -f "$HOME/.zshrc" ]]; then
-      SHELL_RC="$HOME/.zshrc"
+    if [[ "$PROFILE_MODE" == true ]]; then
+      # Profile registration: save credentials to the profile dir, not ~/.zshrc.
+      # This keeps the default account (env vars) untouched.
+      mkdir -p "$PROFILE_DIR"
+      printf '%s' "$API_KEY" > "$PROFILE_DIR/key"
+      chmod 600 "$PROFILE_DIR/key"
+      printf '%s' "$WORKER_URL" > "$PROFILE_DIR/api"
+
+      echo ""
+      echo -e "${GREEN}✓ Registered as ${REGISTER_USERNAME} (profile: ${PROFILE})${NC}"
+      echo ""
+      echo -e "  Credentials saved to ${CYAN}$PROFILE_DIR${NC}"
+      echo ""
+      echo -e "  ${BLUE}Use this account:${NC}"
+      echo -e "    bassh --profile $PROFILE me"
+      echo -e "    bassh --profile $PROFILE ./my-folder -p secret"
+      echo ""
+      echo -e "  Or set ${CYAN}BASSH_PROFILE=$PROFILE${NC} in your shell to use it as default."
+      echo ""
     else
-      SHELL_RC="$HOME/.bashrc"
+      # Determine shell config file
+      if [[ -f "$HOME/.zshrc" ]]; then
+        SHELL_RC="$HOME/.zshrc"
+      else
+        SHELL_RC="$HOME/.bashrc"
+      fi
+
+      # Auto-save configuration
+      sed -i '' '/BASSH_KEY/d' "$SHELL_RC" 2>/dev/null || sed -i '/BASSH_KEY/d' "$SHELL_RC"
+      echo "export BASSH_KEY=\"$API_KEY\"" >> "$SHELL_RC"
+
+      # Also save URL if using invite code
+      if [[ -n "$INVITE_CODE" ]]; then
+        sed -i '' '/BASSH_API/d' "$SHELL_RC" 2>/dev/null || sed -i '/BASSH_API/d' "$SHELL_RC"
+        echo "export BASSH_API=\"$WORKER_URL\"" >> "$SHELL_RC"
+      fi
+
+      echo ""
+      echo -e "${GREEN}✓ Registered as ${REGISTER_USERNAME}${NC}"
+      echo ""
+      echo -e "  Configuration saved to ${CYAN}$SHELL_RC${NC}"
+      echo ""
+      echo -e "  ${BLUE}Ready to deploy:${NC}"
+      echo -e "    source $SHELL_RC"
+      echo -e "    bassh ./my-folder"
+      echo ""
     fi
-
-    # Auto-save configuration
-    sed -i '' '/BASSH_KEY/d' "$SHELL_RC" 2>/dev/null || sed -i '/BASSH_KEY/d' "$SHELL_RC"
-    echo "export BASSH_KEY=\"$API_KEY\"" >> "$SHELL_RC"
-
-    # Also save URL if using invite code
-    if [[ -n "$INVITE_CODE" ]]; then
-      sed -i '' '/BASSH_API/d' "$SHELL_RC" 2>/dev/null || sed -i '/BASSH_API/d' "$SHELL_RC"
-      echo "export BASSH_API=\"$WORKER_URL\"" >> "$SHELL_RC"
-    fi
-
-    echo ""
-    echo -e "${GREEN}✓ Registered as ${REGISTER_USERNAME}${NC}"
-    echo ""
-    echo -e "  Configuration saved to ${CYAN}$SHELL_RC${NC}"
-    echo ""
-    echo -e "  ${BLUE}Ready to deploy:${NC}"
-    echo -e "    source $SHELL_RC"
-    echo -e "    bassh ./my-folder"
-    echo ""
   else
     ERROR=$(echo "$RESPONSE" | grep -oE '"error":"[^"]+"' | cut -d'"' -f4)
     echo -e "${RED}Registration failed: $ERROR${NC}"
@@ -340,6 +422,18 @@ fi
 
 # Handle me mode
 if [[ "$ME_MODE" == true ]]; then
+  # Check if worker URL is configured
+  if [[ -z "$WORKER_URL" ]]; then
+    echo -e "${RED}Error: BASSH_API not configured${NC}"
+    echo ""
+    echo "Did you recently register? Try:"
+    echo -e "  ${CYAN}source ~/.zshrc${NC}  (or source ~/.bashrc)"
+    echo ""
+    echo "Or set it manually:"
+    echo -e "  ${CYAN}export BASSH_API=https://your-worker.workers.dev${NC}"
+    exit 1
+  fi
+
   MACHINE_ID=$(get_machine_id)
 
   RESPONSE=$(curl -s -X GET "$WORKER_URL/me" \
@@ -360,10 +454,17 @@ if [[ "$ME_MODE" == true ]]; then
     echo -e "${BLUE}Created:${NC} $CREATED"
     echo ""
   else
-    echo -e "${RED}Not logged in${NC}"
+    echo -e "${RED}Not authenticated${NC}"
     echo ""
-    echo "Register this machine:"
-    echo "  bassh register <username>"
+    echo "Possible issues:"
+    echo "  ${YELLOW}•${NC} This machine isn't registered"
+    echo "  ${YELLOW}•${NC} Your API key is invalid or expired"
+    echo ""
+    echo "To register this machine:"
+    echo "  ${CYAN}bassh register <username>${NC}"
+    echo ""
+    echo "Or regenerate your API key on a registered machine:"
+    echo "  ${CYAN}bassh key --regenerate${NC}"
     exit 1
   fi
   exit 0
@@ -371,6 +472,18 @@ fi
 
 # Handle key mode
 if [[ "$KEY_MODE" == true ]]; then
+  # Check if worker URL is configured
+  if [[ -z "$WORKER_URL" ]]; then
+    echo -e "${RED}Error: BASSH_API not configured${NC}"
+    echo ""
+    echo "Did you recently register? Try:"
+    echo -e "  ${CYAN}source ~/.zshrc${NC}  (or source ~/.bashrc)"
+    echo ""
+    echo "Or set it manually:"
+    echo -e "  ${CYAN}export BASSH_API=https://your-worker.workers.dev${NC}"
+    exit 1
+  fi
+
   MACHINE_ID=$(get_machine_id)
 
   if [[ "$KEY_REGENERATE" == true ]]; then
@@ -437,6 +550,18 @@ fi
 
 # Handle forms mode
 if [[ "$FORMS_MODE" == true ]]; then
+  # Check if worker URL is configured
+  if [[ -z "$WORKER_URL" ]]; then
+    echo -e "${RED}Error: BASSH_API not configured${NC}"
+    echo ""
+    echo "Did you recently register? Try:"
+    echo -e "  ${CYAN}source ~/.zshrc${NC}  (or source ~/.bashrc)"
+    echo ""
+    echo "Or set it manually:"
+    echo -e "  ${CYAN}export BASSH_API=https://your-worker.workers.dev${NC}"
+    exit 1
+  fi
+
   if [[ -z "$PROJECT_NAME" ]]; then
     echo -e "${RED}Error: Project name required. Use -n <name>${NC}"
     echo ""
@@ -462,10 +587,10 @@ if [[ "$FORMS_MODE" == true ]]; then
       exit 0
     fi
 
-    RESPONSE=$(curl -s -X DELETE "$WORKER_URL/forms" \
+    ENCODED_NAME=$(printf '%s' "$PROJECT_NAME" | python3 -c "import sys,urllib.parse; print(urllib.parse.quote(sys.stdin.read()))")
+    RESPONSE=$(curl -s -X DELETE "$WORKER_URL/forms?project=$ENCODED_NAME" \
       -H "X-Machine-ID: $MACHINE_ID" \
-      -H "X-API-Key: $API_KEY" \
-      -H "X-Project-Name: $PROJECT_NAME")
+      -H "X-API-Key: $API_KEY")
 
     if echo "$RESPONSE" | grep -q '"success":true'; then
       DELETED=$(echo "$RESPONSE" | grep -oE '"deleted":[0-9]+' | cut -d':' -f2)
@@ -479,10 +604,10 @@ if [[ "$FORMS_MODE" == true ]]; then
   fi
 
   # List forms
-  RESPONSE=$(curl -s -X GET "$WORKER_URL/forms" \
+  ENCODED_NAME=$(printf '%s' "$PROJECT_NAME" | python3 -c "import sys,urllib.parse; print(urllib.parse.quote(sys.stdin.read()))")
+  RESPONSE=$(curl -s -X GET "$WORKER_URL/forms?project=$ENCODED_NAME" \
     -H "X-Machine-ID: $MACHINE_ID" \
-    -H "X-API-Key: $API_KEY" \
-    -H "X-Project-Name: $PROJECT_NAME")
+    -H "X-API-Key: $API_KEY")
 
   if ! echo "$RESPONSE" | grep -q '"success":true'; then
     ERROR=$(echo "$RESPONSE" | grep -oE '"error":"[^"]+"' | cut -d'"' -f4)
@@ -569,6 +694,18 @@ MACHINE_ID=$(get_machine_id)
 
 # Handle uninstall mode
 if [[ "$UNINSTALL_MODE" == true ]]; then
+  # Check if worker URL is configured
+  if [[ -z "$WORKER_URL" ]]; then
+    echo -e "${RED}Error: BASSH_API not configured${NC}"
+    echo ""
+    echo "Did you recently register? Try:"
+    echo -e "  ${CYAN}source ~/.zshrc${NC}  (or source ~/.bashrc)"
+    echo ""
+    echo "Or set it manually:"
+    echo -e "  ${CYAN}export BASSH_API=https://your-worker.workers.dev${NC}"
+    exit 1
+  fi
+
   # Get user info first
   ME_RESPONSE=$(curl -s -X GET "$WORKER_URL/me" \
     -H "X-Machine-ID: $MACHINE_ID" \
@@ -635,22 +772,28 @@ if [[ "$UNINSTALL_MODE" == true ]]; then
     echo -e "${GREEN}✓ Deleted $APPS_COUNT access app(s)${NC}"
     echo -e "${GREEN}✓ Deleted user account${NC}"
 
-    # Remove API key from shell config
-    if [[ -f "$HOME/.zshrc" ]]; then
-      SHELL_RC="$HOME/.zshrc"
+    if [[ "$PROFILE_MODE" == true ]]; then
+      # Profile uninstall: remove only the profile dir, leave the default
+      # account's machine-id and shell config alone.
+      rm -rf "$PROFILE_DIR"
+      echo -e "${GREEN}✓ Removed profile $PROFILE${NC}"
     else
-      SHELL_RC="$HOME/.bashrc"
-    fi
+      # Default uninstall: clear shell config and machine-id file.
+      if [[ -f "$HOME/.zshrc" ]]; then
+        SHELL_RC="$HOME/.zshrc"
+      else
+        SHELL_RC="$HOME/.bashrc"
+      fi
 
-    if grep -q "BASSH_KEY" "$SHELL_RC" 2>/dev/null; then
-      sed -i '' '/BASSH_KEY/d' "$SHELL_RC" 2>/dev/null || sed -i '/BASSH_KEY/d' "$SHELL_RC"
-      echo -e "${GREEN}✓ Removed API key from $SHELL_RC${NC}"
-    fi
+      if grep -q "BASSH_KEY" "$SHELL_RC" 2>/dev/null; then
+        sed -i '' '/BASSH_KEY/d' "$SHELL_RC" 2>/dev/null || sed -i '/BASSH_KEY/d' "$SHELL_RC"
+        echo -e "${GREEN}✓ Removed API key from $SHELL_RC${NC}"
+      fi
 
-    # Remove local machine ID
-    if [[ -f "$MACHINE_ID_FILE" ]]; then
-      rm -f "$MACHINE_ID_FILE"
-      echo -e "${GREEN}✓ Removed machine ID${NC}"
+      if [[ -f "$MACHINE_ID_FILE" ]]; then
+        rm -f "$MACHINE_ID_FILE"
+        echo -e "${GREEN}✓ Removed machine ID${NC}"
+      fi
     fi
     # Remove config directory if empty
     rmdir "$CONFIG_DIR" 2>/dev/null || true
@@ -684,6 +827,18 @@ fi
 
 # Handle list mode
 if [[ "$LIST_MODE" == true ]]; then
+  # Check if worker URL is configured
+  if [[ -z "$WORKER_URL" ]]; then
+    echo -e "${RED}Error: BASSH_API not configured${NC}"
+    echo ""
+    echo "Did you recently register? Try:"
+    echo -e "  ${CYAN}source ~/.zshrc${NC}  (or source ~/.bashrc)"
+    echo ""
+    echo "Or set it manually:"
+    echo -e "  ${CYAN}export BASSH_API=https://your-worker.workers.dev${NC}"
+    exit 1
+  fi
+
   RESPONSE=$(curl -s -X GET "$WORKER_URL" \
     -H "X-Machine-ID: $MACHINE_ID" \
     -H "X-API-Key: $API_KEY")
@@ -723,6 +878,18 @@ fi
 
 # Handle delete mode
 if [[ "$DELETE_MODE" == true ]]; then
+  # Check if worker URL is configured
+  if [[ -z "$WORKER_URL" ]]; then
+    echo -e "${RED}Error: BASSH_API not configured${NC}"
+    echo ""
+    echo "Did you recently register? Try:"
+    echo -e "  ${CYAN}source ~/.zshrc${NC}  (or source ~/.bashrc)"
+    echo ""
+    echo "Or set it manually:"
+    echo -e "  ${CYAN}export BASSH_API=https://your-worker.workers.dev${NC}"
+    exit 1
+  fi
+
   if [[ -z "$PROJECT_NAME" ]]; then
     echo -e "${RED}Error: Project name required for delete. Use -n <name>${NC}"
     exit 1
@@ -730,11 +897,11 @@ if [[ "$DELETE_MODE" == true ]]; then
 
   echo -e "${BLUE}Deleting project: $PROJECT_NAME${NC}"
 
-  RESPONSE=$(curl -s -X DELETE "$WORKER_URL" \
+  ENCODED_NAME=$(printf '%s' "$PROJECT_NAME" | python3 -c "import sys,urllib.parse; print(urllib.parse.quote(sys.stdin.read()))")
+  RESPONSE=$(curl -s -X DELETE "$WORKER_URL/?project=$ENCODED_NAME" \
     -H "Content-Type: application/json" \
     -H "X-Machine-ID: $MACHINE_ID" \
-    -H "X-API-Key: $API_KEY" \
-    -H "X-Project-Name: $PROJECT_NAME")
+    -H "X-API-Key: $API_KEY")
 
   if echo "$RESPONSE" | grep -q '"success":true'; then
     echo -e "${GREEN}✓ Project '$PROJECT_NAME' deleted successfully${NC}"
@@ -827,6 +994,18 @@ if [[ -n "$CUSTOM_DOMAIN" ]]; then
   fi
 fi
 
+# Check if worker URL is configured (for deployment)
+if [[ -z "$WORKER_URL" ]]; then
+  echo -e "${RED}Error: BASSH_API not configured${NC}"
+  echo ""
+  echo "Did you recently register? Try:"
+  echo -e "  ${CYAN}source ~/.zshrc${NC}  (or source ~/.bashrc)"
+  echo ""
+  echo "Or set it manually:"
+  echo -e "  ${CYAN}export BASSH_API=https://your-worker.workers.dev${NC}"
+  exit 1
+fi
+
 # Create temp directory for processing
 TEMP_DIR=$(mktemp -d)
 DEPLOY_DIR="$TEMP_DIR/deploy"
@@ -856,11 +1035,57 @@ echo -e "${BLUE}Packaging site...${NC}"
 
 cd "$DEPLOY_DIR"
 
-# Collect all files into an array
+# Collect all files into an array, excluding common junk and secret files.
+# Skips: VCS dirs, dependency dirs, OS metadata, env files, log files.
+# Honors a .basshignore file (gitignore-style, top-level) if present.
 FILES=()
+SKIPPED=0
+EXTRA_IGNORES=()
+if [[ -f ".basshignore" ]]; then
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    EXTRA_IGNORES+=("$line")
+  done < ".basshignore"
+fi
+
 while IFS= read -r -d '' file; do
+  rel="${file#./}"
+  base="$(basename "$rel")"
+  skip=0
+  case "/$rel/" in
+    */.git/*|*/.svn/*|*/.hg/*) skip=1 ;;
+    */node_modules/*|*/__pycache__/*|*/.venv/*|*/venv/*) skip=1 ;;
+  esac
+  if [[ $skip -eq 0 ]]; then
+    case "$base" in
+      .DS_Store|Thumbs.db|.env|.env.*|*.log|*.pem|*.key|id_rsa|id_ed25519) skip=1 ;;
+    esac
+  fi
+  if [[ $skip -eq 0 && ${#EXTRA_IGNORES[@]} -gt 0 ]]; then
+    for pat in "${EXTRA_IGNORES[@]}"; do
+      # shellcheck disable=SC2053
+      if [[ "$rel" == $pat || "$base" == $pat || "$rel" == */$pat || "$rel" == $pat/* ]]; then
+        skip=1
+        break
+      fi
+    done
+  fi
+  if [[ $skip -eq 1 ]]; then
+    SKIPPED=$((SKIPPED + 1))
+    continue
+  fi
   FILES+=("$file")
 done < <(find . -type f -print0)
+
+if [[ ${#FILES[@]} -eq 0 ]]; then
+  echo -e "${RED}Error: No deployable files found in '$DIR'${NC}"
+  echo "(Hidden files, .git, node_modules, .env, etc. are excluded by default.)"
+  exit 1
+fi
+
+if [[ $SKIPPED -gt 0 ]]; then
+  echo -e "${BLUE}Skipped $SKIPPED file(s) (VCS / deps / secrets).${NC}"
+fi
 
 # Build JSON
 echo -n '{"files":[' > "$JSON_FILE"
@@ -881,7 +1106,30 @@ for i in "${!FILES[@]}"; do
   printf '{"path":"%s","content":"%s"}' "$FILEPATH" "$CONTENT" >> "$JSON_FILE"
 done
 
-echo ']}' >> "$JSON_FILE"
+echo ']'  >> "$JSON_FILE"
+
+# JSON-escape a string for embedding as a value
+json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  printf '%s' "$s"
+}
+
+# Append deploy metadata to body (sensitive fields are sent in the body, not headers,
+# so they don't end up in proxy logs / Logpush).
+{
+  printf ',"projectName":"%s"'  "$(json_escape "$PROJECT_NAME")"
+  printf ',"password":"%s"'     "$(json_escape "$PASSWORD")"
+  printf ',"emails":"%s"'       "$(json_escape "$EMAILS")"
+  printf ',"domain":"%s"'       "$(json_escape "$DOMAIN")"
+  printf ',"customDomain":"%s"' "$(json_escape "$CUSTOM_DOMAIN")"
+  printf ',"otpEmails":"%s"'    "$(json_escape "$OTP_EMAILS")"
+  printf '}'
+} >> "$JSON_FILE"
 
 cd - > /dev/null
 
@@ -893,16 +1141,14 @@ RESPONSE=$(curl -s -X POST "$WORKER_URL" \
   -H "Content-Type: application/json" \
   -H "X-Machine-ID: $MACHINE_ID" \
   -H "X-API-Key: $API_KEY" \
-  -H "X-Project-Name: $PROJECT_NAME" \
-  -H "X-Password: $PASSWORD" \
-  -H "X-Emails: $EMAILS" \
-  -H "X-Domain: $DOMAIN" \
-  -H "X-Custom-Domain: $CUSTOM_DOMAIN" \
-  -H "X-OTP-Emails: $OTP_EMAILS" \
   --data-binary "@$JSON_FILE")
 
-# Cleanup
-rm -rf "$TEMP_DIR"
+# Cleanup (only after we have a response — keep payload around if curl failed)
+if [[ -n "$RESPONSE" ]]; then
+  rm -rf "$TEMP_DIR"
+else
+  echo -e "${YELLOW}Note: payload preserved at $JSON_FILE for debugging${NC}"
+fi
 
 # Parse response
 if echo "$RESPONSE" | grep -q '"success":true'; then

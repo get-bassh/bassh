@@ -2,6 +2,8 @@ name = "bassh-api"
 main = "src/index.js"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
+# account_id is read from `wrangler login` or the CLOUDFLARE_ACCOUNT_ID env var.
+# Do NOT commit a hard-coded account_id here — forks would deploy into your account.
 
 # You'll set these after deploying:
 # wrangler secret put CF_API_TOKEN

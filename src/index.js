@@ -647,23 +647,84 @@ function getOTPDecryptTemplate(encryptedData, projectName, apiUrl, allowedEmails
   </div>
 
   <script>
-    (function() {
+    (async function() {
       const ENCRYPTED = "${encryptedData}";
       const PROJECT = "${projectName}";
       const API_URL = "${apiUrl}";
       const ALLOWED = ${JSON.stringify(allowedEmails)};
+      const SESSION_KEY = 'bassh_session_' + PROJECT;
+      const SESSION_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 
-      // Check for OTP in URL
-      const params = new URLSearchParams(window.location.search);
-      const otp = params.get('otp');
-
-      if (otp) {
-        // Verify OTP and decrypt
-        document.getElementById('emailForm').classList.add('hidden');
-        document.getElementById('verifying').classList.remove('hidden');
-
-        verifyAndDecrypt(otp);
+      function showLoginForm() {
+        document.body.style.visibility = 'visible';
       }
+
+      function replaceWithDecryptedContent(html) {
+        // Parse the decrypted HTML
+        const parser = new DOMParser();
+        const newDoc = parser.parseFromString(html, 'text/html');
+
+        // Replace entire document content
+        document.head.innerHTML = newDoc.head.innerHTML;
+        document.body.innerHTML = newDoc.body.innerHTML;
+
+        // Copy body attributes (class, style, etc.)
+        Array.from(newDoc.body.attributes).forEach(attr => {
+          document.body.setAttribute(attr.name, attr.value);
+        });
+
+        // Re-execute scripts (they don't run when added via innerHTML)
+        document.querySelectorAll('script').forEach(oldScript => {
+          const newScript = document.createElement('script');
+          Array.from(oldScript.attributes).forEach(attr => {
+            newScript.setAttribute(attr.name, attr.value);
+          });
+          newScript.textContent = oldScript.textContent;
+          oldScript.parentNode.replaceChild(newScript, oldScript);
+        });
+      }
+
+      try {
+        // Check for existing session first (with expiry)
+        const storedData = localStorage.getItem(SESSION_KEY);
+        if (storedData) {
+          try {
+            const session = JSON.parse(storedData);
+            // Check if session expired
+            if (session.expires && session.expires > Date.now()) {
+              const html = await decrypt(session.key);
+              if (html) {
+                // Session valid, show content immediately
+                replaceWithDecryptedContent(html);
+                return;
+              }
+            }
+          } catch (e) {
+            console.error('Session parse error:', e);
+          }
+          // Session invalid or expired, clear it
+          localStorage.removeItem(SESSION_KEY);
+        }
+
+        // Check for OTP in URL
+        const params = new URLSearchParams(window.location.search);
+        const otp = params.get('otp');
+
+        if (otp) {
+          // Verify OTP and decrypt
+          showLoginForm();
+          document.getElementById('emailForm').classList.add('hidden');
+          document.getElementById('verifying').classList.remove('hidden');
+          verifyAndDecrypt(otp);
+          return;
+        }
+      } catch (e) {
+        console.error('Session error:', e);
+        localStorage.removeItem(SESSION_KEY);
+      }
+
+      // No session, no OTP, or error - show login form
+      showLoginForm();
 
       async function verifyAndDecrypt(otp) {
         try {
@@ -681,14 +742,18 @@ function getOTPDecryptTemplate(encryptedData, projectName, apiUrl, allowedEmails
             return;
           }
 
+          // Store session key for future page loads (with 24h expiry, works across tabs)
+          localStorage.setItem(SESSION_KEY, JSON.stringify({
+            key: data.key,
+            expires: Date.now() + SESSION_DURATION
+          }));
+
           // Decrypt with the key
           const html = await decrypt(data.key);
           if (html) {
             // Clear URL params and replace page
             window.history.replaceState({}, '', window.location.pathname);
-            document.open();
-            document.write(html);
-            document.close();
+            replaceWithDecryptedContent(html);
           } else {
             document.getElementById('verifyError').textContent = 'Failed to decrypt content';
             document.getElementById('verifyError').style.display = 'block';
@@ -833,10 +898,10 @@ async function handleOTPRequest(request, env, corsHeaders) {
       });
     }
 
-    // Rate limit: 3 requests per email per 15 minutes
+    // Rate limit: 10 requests per email per 15 minutes
     const rateLimitKey = `otp-rate:${project}:${emailLower}`;
     const rateCount = parseInt(await env.USERS.get(rateLimitKey) || '0');
-    if (rateCount >= 3) {
+    if (rateCount >= 10) {
       return new Response(JSON.stringify({ error: 'Too many requests. Please wait 15 minutes.' }), {
         status: 429,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -850,7 +915,7 @@ async function handleOTPRequest(request, env, corsHeaders) {
     await env.USERS.put(otpKey, JSON.stringify({
       email: emailLower,
       created: new Date().toISOString()
-    }), { expirationTtl: 300 }); // 5 minute expiry
+    }), { expirationTtl: 10800 }); // 3 hour expiry
 
     // Build magic link
     const magicLink = `${pageUrl}?otp=${otp}`;
@@ -879,7 +944,7 @@ async function handleOTPRequest(request, env, corsHeaders) {
           html: `
             <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px;">
               <h2 style="color: #1a1a1a; margin-bottom: 16px;">Access Requested</h2>
-              <p style="color: #666; line-height: 1.6;">Click the button below to access the protected page. This link expires in 5 minutes.</p>
+              <p style="color: #666; line-height: 1.6;">Click the button below to access the protected page. This link expires in 3 hours.</p>
               <a href="${magicLink}" style="display: inline-block; background: #0066ff; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500; margin: 20px 0;">Open Page</a>
               <p style="color: #999; font-size: 14px;">If you didn't request this, you can ignore this email.</p>
             </div>
@@ -978,7 +1043,11 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, X-Project-Name, X-Password, X-Emails, X-Domain, X-API-Key, X-Machine-ID, X-Custom-Domain, X-OTP-Emails',
+      // Sensitive params (password, otpEmails, emails) now travel in the request body
+      // for POST or as query string for GET/DELETE — never as headers (which get logged).
+      // Auth headers (X-API-Key, X-Machine-ID) and project-name fallback header remain
+      // for backward compatibility with older CLIs.
+      'Access-Control-Allow-Headers': 'Content-Type, X-API-Key, X-Machine-ID, X-Project-Name',
     };
 
     if (request.method === 'OPTIONS') {
@@ -1079,19 +1148,24 @@ export default {
 
 async function handleDeploy(request, env, corsHeaders, username) {
   try {
-    let projectName = request.headers.get('X-Project-Name') || `site-${Date.now().toString().slice(-6)}`;
-    const password = request.headers.get('X-Password') || '';
-    const emails = request.headers.get('X-Emails') || '';
-    const domain = request.headers.get('X-Domain') || '';
-    const customDomain = request.headers.get('X-Custom-Domain') || '';
-    const otpEmails = request.headers.get('X-OTP-Emails') || '';
+    // Parse JSON payload (files + deploy metadata).
+    // New CLIs put sensitive params in the body; old CLIs sent them as headers.
+    // Body wins; header is a fallback so old clients keep working during rollout.
+    const payload = await request.json();
+    const files = payload.files;
+
+    let projectName =
+      payload.projectName ||
+      request.headers.get('X-Project-Name') ||
+      `site-${Date.now().toString().slice(-6)}`;
+    const password     = payload.password     ?? request.headers.get('X-Password')      ?? '';
+    const emails       = payload.emails       ?? request.headers.get('X-Emails')        ?? '';
+    const domain       = payload.domain       ?? request.headers.get('X-Domain')        ?? '';
+    const customDomain = payload.customDomain ?? request.headers.get('X-Custom-Domain') ?? '';
+    const otpEmails    = payload.otpEmails    ?? request.headers.get('X-OTP-Emails')    ?? '';
 
     // Namespace project name with username
     const fullProjectName = `${username}-${projectName}`;
-
-    // Parse JSON payload with files
-    const payload = await request.json();
-    const files = payload.files;
 
     if (!files || files.length === 0) {
       return new Response(JSON.stringify({ error: 'No files provided' }), {
@@ -1879,10 +1953,11 @@ async function handleFormSubmit(request, env, corsHeaders, projectName) {
 // Handle form listing (authenticated)
 async function handleFormsList(request, env, corsHeaders, username) {
   try {
-    const projectName = request.headers.get('X-Project-Name');
+    const url = new URL(request.url);
+    const projectName = url.searchParams.get('project') || request.headers.get('X-Project-Name');
 
     if (!projectName) {
-      return new Response(JSON.stringify({ error: 'Project name required (X-Project-Name header)' }), {
+      return new Response(JSON.stringify({ error: 'Project name required (?project= query param)' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
@@ -1943,10 +2018,11 @@ async function handleFormsList(request, env, corsHeaders, username) {
 // Handle form deletion (authenticated)
 async function handleFormsDelete(request, env, corsHeaders, username) {
   try {
-    const projectName = request.headers.get('X-Project-Name');
+    const url = new URL(request.url);
+    const projectName = url.searchParams.get('project') || request.headers.get('X-Project-Name');
 
     if (!projectName) {
-      return new Response(JSON.stringify({ error: 'Project name required (X-Project-Name header)' }), {
+      return new Response(JSON.stringify({ error: 'Project name required (?project= query param)' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
@@ -1999,7 +2075,8 @@ async function handleFormsDelete(request, env, corsHeaders, username) {
 
 async function handleDelete(request, env, corsHeaders, username) {
   try {
-    let projectName = request.headers.get('X-Project-Name');
+    const url = new URL(request.url);
+    let projectName = url.searchParams.get('project') || request.headers.get('X-Project-Name');
 
     if (!projectName) {
       return new Response(JSON.stringify({ error: 'Project name required' }), {

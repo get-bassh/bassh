@@ -1,12 +1,22 @@
 # bassh Skill for Claude Code
 
-Deploy HTML artifacts directly from Claude Code to password-protected URLs.
+Deploy HTML artifacts and static sites from Claude Code to a private, password-protected URL.
 
-> **Note:** This skill only works with Claude Code (the CLI). It does not work with Claude.ai web interface.
+> Works only with Claude Code (and other shell-capable agents). The Claude.ai web UI cannot run shell commands and cannot use this skill.
 
 ## Install
 
-Copy the skill to your Claude Code skills directory:
+The skill is a single file with YAML frontmatter, so Claude Code picks it up automatically once placed under `~/.claude/skills/`.
+
+**Recommended (modern, directory-style layout):**
+
+```bash
+mkdir -p ~/.claude/skills/deploy-artifact
+curl -fsSL https://raw.githubusercontent.com/get-bassh/bassh/main/skill/deploy-artifact.md \
+  -o ~/.claude/skills/deploy-artifact/SKILL.md
+```
+
+**Flat layout** also works:
 
 ```bash
 mkdir -p ~/.claude/skills
@@ -14,9 +24,11 @@ curl -fsSL https://raw.githubusercontent.com/get-bassh/bassh/main/skill/deploy-a
   -o ~/.claude/skills/deploy-artifact.md
 ```
 
+Restart Claude Code (or run `/skills` to confirm it's loaded).
+
 ## Prerequisites
 
-1. **bassh CLI installed:**
+1. **`bassh` CLI installed:**
    ```bash
    curl -fsSL https://raw.githubusercontent.com/get-bassh/bassh/main/install.sh | bash
    source ~/.zshrc
@@ -27,30 +39,35 @@ curl -fsSL https://raw.githubusercontent.com/get-bassh/bassh/main/skill/deploy-a
    bassh register myusername --invite subdomain:secret123
    ```
 
+   Don't have a code? Ask your bassh operator, or run your own worker — see the project [README](../README.md) for operator setup.
+
 ## Usage
 
 In Claude Code, just ask:
 
 ```
-Deploy this HTML with password "secret123":
+Deploy this HTML with a random password:
 <html><body><h1>Hello</h1></body></html>
 ```
 
 Or after generating an artifact:
 
 ```
-Deploy that HTML artifact with a random password
+Deploy that HTML behind email login for alice@example.com
 ```
 
 Claude will:
-1. Check you're set up (guide you through setup if not)
-2. Create a temp directory with your HTML
-3. Deploy via bassh with password protection
-4. Return the URL and password
 
-## What It Handles
+1. Confirm the CLI is installed and you're logged in (and walk you through setup if not).
+2. Stage your HTML in a temp directory.
+3. Deploy with the protection you asked for (password, magic link, or Cloudflare Access).
+4. Return the URL and credentials.
 
-- First-time setup (installation + registration)
-- HTML from conversation, artifacts, or files
-- Password protection (required or auto-generated)
-- Error recovery with clear guidance
+## What the skill handles
+
+- First-time install + registration flow
+- HTML pulled from chat, artifacts, or local files
+- Password / email magic link / Cloudflare Access protection
+- Custom domains (prints the CNAME record)
+- Project listing, deletion, and form-submission viewing
+- Optional contact-form scaffolding that posts to the bassh API
