@@ -13,6 +13,16 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 # Non-sensitive config can go here
 
+# Custom domain routes for bassh.io (uncomment after the domain is on Cloudflare).
+# The worker keeps responding on its workers.dev URL too — these routes are additive.
+# [[routes]]
+# pattern = "bassh.io"
+# custom_domain = true
+#
+# [[routes]]
+# pattern = "www.bassh.io"
+# custom_domain = true
+
 [[kv_namespaces]]
 binding = "USERS"
 id = "6f2b0c44791b43519a5c06a47fb43c56"

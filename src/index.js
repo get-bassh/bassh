@@ -3,6 +3,9 @@
 
 import { EmailMessage } from "cloudflare:email";
 import { createMimeMessage } from "mimetext";
+import { landingPage } from "./templates/landing.js";
+import { dashboardPage } from "./templates/dashboard.js";
+import { SKILL_MARKDOWN } from "./templates/skill.js";
 
 // ============================================================
 // AUTHENTICATION & USER MANAGEMENT
@@ -63,6 +66,19 @@ async function getUserByMachineId(env, machineId) {
   return data; // { username: "..." } or null
 }
 
+// Create a user record in KV. Shared between CLI registration (handleRegister)
+// and web magic-link signup (handleSignupVerify). Returns the API key.
+async function createUser(env, username, machineId = '') {
+  const apiKey = generateApiKey();
+  const created = new Date().toISOString();
+  await env.USERS.put(`user:${username}`, JSON.stringify({ key: apiKey, created, machineId }));
+  await env.USERS.put(`key:${apiKey}`, JSON.stringify({ username }));
+  if (machineId) {
+    await env.USERS.put(`machine:${machineId}`, JSON.stringify({ username }));
+  }
+  return apiKey;
+}
+
 // Handle user registration
 async function handleRegister(request, env, corsHeaders) {
   try {
@@ -111,17 +127,8 @@ async function handleRegister(request, env, corsHeaders) {
       });
     }
 
-    // Generate API key and store user
-    const apiKey = generateApiKey();
-    const created = new Date().toISOString();
-
-    await env.USERS.put(`user:${username}`, JSON.stringify({ key: apiKey, created, machineId }));
-    await env.USERS.put(`key:${apiKey}`, JSON.stringify({ username }));
-
-    // Store machine-to-user mapping for one-account-per-computer
-    if (machineId) {
-      await env.USERS.put(`machine:${machineId}`, JSON.stringify({ username }));
-    }
+    // Generate API key and store user (shared with web signup path)
+    const apiKey = await createUser(env, username, machineId);
 
     return new Response(JSON.stringify({
       success: true,
@@ -1032,6 +1039,143 @@ async function handleOTPVerify(request, env, corsHeaders) {
 }
 
 // ============================================================
+// WEB SIGNUP (magic link)
+// ============================================================
+// Lets non-terminal users get a bassh API key from a browser.
+// Reuses the same Resend integration that powers the per-page OTP flow.
+
+function isValidEmail(email) {
+  return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+// Rate-limit signup magic-link requests: 3 per hour per email.
+async function checkSignupRateLimit(env, email) {
+  const key = `signup-rate:${email}`;
+  const current = parseInt(await env.USERS.get(key) || '0');
+  if (current >= 3) return false;
+  await env.USERS.put(key, String(current + 1), { expirationTtl: 3600 });
+  return true;
+}
+
+// Derive a username from an email local-part. Suffix with digits if taken.
+async function deriveUsername(env, email) {
+  const local = email.split('@')[0].toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  const base = local.length >= 3 ? local : (local + 'user').slice(0, 20);
+  for (let i = 0; i < 100; i++) {
+    const candidate = i === 0 ? base : `${base}${i + 1}`;
+    if (candidate.length > 20) continue;
+    if (!isValidUsername(candidate)) continue;
+    const existing = await getUserByUsername(env, candidate);
+    if (!existing) return candidate;
+  }
+  return null; // give up after 100 tries
+}
+
+// POST /signup/request — body {email}. Sends magic link via Resend.
+async function handleSignupRequest(request, env, corsHeaders, origin) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const email = (body.email || '').toLowerCase().trim();
+    if (!isValidEmail(email)) {
+      return new Response(JSON.stringify({ error: 'Please enter a valid email address.' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+    if (!(await checkSignupRateLimit(env, email))) {
+      return new Response(JSON.stringify({ error: 'Too many requests for this email. Try again in an hour.' }), {
+        status: 429,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+    if (!env.RESEND_API_KEY) {
+      return new Response(JSON.stringify({ error: 'Email service not configured.' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Generate token and store mapping. 1-hour TTL.
+    const tokenBytes = crypto.getRandomValues(new Uint8Array(24));
+    const token = Array.from(tokenBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    await env.USERS.put(`signup:${token}`, JSON.stringify({ email, ts: Date.now() }), { expirationTtl: 3600 });
+
+    const verifyLink = `${origin}/signup/verify?token=${token}`;
+    const senderEmail = env.EMAIL_FROM || 'access@bassh.io';
+
+    const resendResponse = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: `bassh <${senderEmail}>`,
+        to: [email],
+        subject: 'Verify your bassh account',
+        html: `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #1a1a1a; margin-bottom: 16px;">Welcome to bassh</h2>
+            <p style="color: #666; line-height: 1.6;">Click the button below to finish creating your account. This link expires in 1 hour and can only be used once.</p>
+            <a href="${verifyLink}" style="display: inline-block; background: #0066ff; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500; margin: 20px 0;">Verify email</a>
+            <p style="color: #999; font-size: 14px;">If you didn't request this, you can safely ignore this email.</p>
+          </div>
+        `
+      })
+    });
+    if (!resendResponse.ok) {
+      const errorData = await resendResponse.json().catch(() => ({}));
+      return new Response(JSON.stringify({ error: 'Failed to send verification email.', details: errorData.message }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: 'Internal error', message: e.message }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+// GET /signup/verify?token=… — creates the account and renders the dashboard.
+async function handleSignupVerify(request, env, corsHeaders, host) {
+  const url = new URL(request.url);
+  const token = url.searchParams.get('token');
+  if (!token) {
+    return new Response('Missing token.', { status: 400, headers: corsHeaders });
+  }
+  const data = await env.USERS.get(`signup:${token}`, 'json');
+  if (!data) {
+    return new Response('This verification link is invalid or has expired. Request a new one at https://bassh.io.', {
+      status: 400, headers: corsHeaders
+    });
+  }
+  // One-time use
+  await env.USERS.delete(`signup:${token}`);
+
+  const email = data.email;
+  const username = await deriveUsername(env, email);
+  if (!username) {
+    return new Response('Could not derive a username from your email. Please try a different address or contact support.', {
+      status: 500, headers: corsHeaders
+    });
+  }
+  const apiKey = await createUser(env, username, /* machineId */ '');
+
+  // Map email → username for future "find my account" flows.
+  await env.USERS.put(`email:${email}`, JSON.stringify({ username }));
+
+  return new Response(dashboardPage({ username, apiKey, host }), {
+    status: 200,
+    headers: { ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8' }
+  });
+}
+
+// ============================================================
 // MAIN HANDLER
 // ============================================================
 
@@ -1089,6 +1233,45 @@ export default {
     // Route: POST /otp/verify - Verify OTP and get decryption key (public, no auth)
     if (path === '/otp/verify' && request.method === 'POST') {
       return handleOTPVerify(request, env, corsHeaders);
+    }
+
+    // Route: POST /signup/request - Request signup magic link (public, no auth)
+    if (path === '/signup/request' && request.method === 'POST') {
+      return handleSignupRequest(request, env, corsHeaders, url.origin);
+    }
+
+    // Route: GET /signup/verify - Verify magic link, create account, render dashboard
+    if (path === '/signup/verify' && request.method === 'GET') {
+      return handleSignupVerify(request, env, corsHeaders, url.host);
+    }
+
+    // Route: GET /skill/bassh-deploy.md - Hosted skill markdown for Cowork install
+    if (path === '/skill/bassh-deploy.md' && request.method === 'GET') {
+      return new Response(SKILL_MARKDOWN, {
+        status: 200,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'text/markdown; charset=utf-8',
+          'Cache-Control': 'public, max-age=300'
+        }
+      });
+    }
+
+    // Route: GET / - landing page when unauthenticated, project list when authed.
+    // The list path falls through to the auth check below; here we only intercept
+    // browser visits that have no auth headers at all.
+    if (path === '/' && request.method === 'GET'
+        && !request.headers.get('X-API-Key')
+        && !request.headers.get('X-Machine-ID')
+        && !request.headers.get('Authorization')) {
+      return new Response(landingPage(), {
+        status: 200,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'public, max-age=60'
+        }
+      });
     }
 
     // All other routes require authentication (hybrid: machine ID or API key)
