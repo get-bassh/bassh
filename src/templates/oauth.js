@@ -45,7 +45,7 @@ ${siteHeader({ active: "" })}
   </form>
 
   <p style="font-size: 13px; color: var(--text-dim); margin-top: 24px; text-align: center;">
-    Don't have a key? <a href="/">Sign up at bassh.io</a> first.
+    Don't have a key? <a href="/">Sign up first</a>.
   </p>
 </div>
 
