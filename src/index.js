@@ -6,7 +6,15 @@ import { createMimeMessage } from "mimetext";
 import { landingPage } from "./templates/landing.js";
 import { dashboardPage } from "./templates/dashboard.js";
 import { SKILL_MARKDOWN } from "./templates/skill.js";
+import { connectPage } from "./templates/connect.js";
 import { handleMCP } from "./mcp.js";
+import {
+  handleOAuthDiscovery,
+  handleOAuthAuthorize,
+  handleOAuthToken,
+  handleOAuthClientCreate,
+  getUserByMcpToken,
+} from "./oauth.js";
 
 // ============================================================
 // AUTHENTICATION & USER MANAGEMENT
@@ -1249,13 +1257,56 @@ export default {
     // Route: POST /mcp - MCP (Model Context Protocol) Streamable HTTP endpoint.
     // Bearer-authenticated; lets Claude Cowork / Desktop call deploy/list/delete
     // tools via Custom Connectors. Auth and dispatch live in src/mcp.js.
+    // Bearer can be either an sk_… API key (CLI users) or an mcp_… OAuth
+    // access token issued by /oauth/token (Cowork/Desktop users).
     if (path === '/mcp') {
       return handleMCP(request, env, {
-        getUserByKey,
+        getUserByKey: async (env, token) => {
+          if (!token) return null;
+          if (token.startsWith('mcp_')) return getUserByMcpToken(env, token);
+          return getUserByKey(env, token);
+        },
         handleDeploy,
         handleList,
         handleDelete,
         handleFormsList,
+      });
+    }
+
+    // ============================================================
+    // OAuth 2.0 endpoints (for Custom Connector add-flow)
+    // ============================================================
+
+    // Route: GET /.well-known/oauth-authorization-server - OAuth discovery
+    if (path === '/.well-known/oauth-authorization-server' && request.method === 'GET') {
+      return handleOAuthDiscovery(request);
+    }
+
+    // Route: GET/POST /oauth/authorize - consent screen + form submission
+    if (path === '/oauth/authorize') {
+      return handleOAuthAuthorize(request, env, { getUserByKey });
+    }
+
+    // Route: POST /oauth/token - exchange code for access_token
+    if (path === '/oauth/token') {
+      return handleOAuthToken(request, env);
+    }
+
+    // Route: POST /oauth/clients - create a (client_id, client_secret) pair.
+    // Authenticated by API key (Bearer or X-API-Key header).
+    if (path === '/oauth/clients' && request.method === 'POST') {
+      return handleOAuthClientCreate(request, env, { getUserByKey });
+    }
+
+    // Route: GET /connect - public page where the user generates connector creds
+    if (path === '/connect' && request.method === 'GET') {
+      return new Response(connectPage(), {
+        status: 200,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store'
+        }
       });
     }
 
